@@ -214,6 +214,11 @@
 			<artifactId>miglayout</artifactId>
 			<classifier>swing</classifier>
 		</dependency>
+		<dependency>
+			<groupId>org.clojars.nakkaya</groupId>
+			<artifactId>darcula</artifactId>
+			<version>1.0.0</version>
+		</dependency>
 
 		<!-- test dependencies -->
 		<dependency>
