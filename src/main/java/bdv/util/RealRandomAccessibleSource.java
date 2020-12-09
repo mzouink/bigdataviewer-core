@@ -45,7 +45,7 @@ import net.imglib2.view.Views;
  *
  * @param <T>
  *
- * @author Tobias Pietzsch
+ * @author Tobias Pietzsch &lt;tobias.pietzsch@gmail.com&gt;
  */
 public abstract class RealRandomAccessibleSource< T extends Type< T > > implements Source< T >
 {
@@ -57,25 +57,17 @@ public abstract class RealRandomAccessibleSource< T extends Type< T > > implemen
 
 	protected final VoxelDimensions voxelDimensions;
 
-	protected final boolean doBoundingBoxIntersectionCheck;
-
 	public RealRandomAccessibleSource( final RealRandomAccessible< T > accessible, final T type, final String name )
 	{
-		this( accessible, type, name, null, false );
+		this( accessible, type, name, null );
 	}
 
 	public RealRandomAccessibleSource( final RealRandomAccessible< T > accessible, final T type, final String name, final VoxelDimensions voxelDimensions )
-	{
-		this( accessible, type, name, voxelDimensions, false );
-	}
-
-	public RealRandomAccessibleSource( final RealRandomAccessible< T > accessible, final T type, final String name, final VoxelDimensions voxelDimensions, final boolean doBoundingBoxIntersectionCheck )
 	{
 		this.accessible = accessible;
 		this.type = type.createVariable();
 		this.name = name;
 		this.voxelDimensions = voxelDimensions;
-		this.doBoundingBoxIntersectionCheck = doBoundingBoxIntersectionCheck;
 	}
 
 	@Override
@@ -132,11 +124,5 @@ public abstract class RealRandomAccessibleSource< T extends Type< T > > implemen
 	public int getNumMipmapLevels()
 	{
 		return 1;
-	}
-
-	@Override
-	public boolean doBoundingBoxCulling()
-	{
-		return doBoundingBoxIntersectionCheck;
 	}
 }

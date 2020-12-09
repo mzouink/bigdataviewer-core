@@ -36,7 +36,7 @@ import net.imglib2.util.LinAlgHelpers;
  * {@link AffineTransform3D}. Note that most of these helpers assume additional
  * restrictions on the affine transform.
  *
- * @author Tobias Pietzsch
+ * @author Tobias Pietzsch &lt;tobias.pietzsch@gmail.com&gt;
  */
 public class Affine3DHelpers
 {

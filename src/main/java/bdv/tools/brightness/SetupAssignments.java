@@ -49,7 +49,7 @@ import mpicbg.spim.data.XmlHelpers;
  * <li>No group is empty.</li>
  * </ol>
  *
- * @author Tobias Pietzsch
+ * @author Tobias Pietzsch &lt;tobias.pietzsch@gmail.com&gt;
  */
 @Deprecated
 public class SetupAssignments
@@ -83,7 +83,7 @@ public class SetupAssignments
 
 	public interface UpdateListener
 	{
-		void update();
+		public void update();
 	}
 
 	private UpdateListener updateListener;

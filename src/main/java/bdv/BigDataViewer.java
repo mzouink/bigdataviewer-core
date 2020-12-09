@@ -96,7 +96,6 @@ import mpicbg.spim.data.generic.sequence.AbstractSequenceDescription;
 import mpicbg.spim.data.generic.sequence.BasicViewSetup;
 import mpicbg.spim.data.sequence.Angle;
 import mpicbg.spim.data.sequence.Channel;
-import org.scijava.ui.behaviour.util.Actions;
 
 public class BigDataViewer
 {
@@ -329,6 +328,8 @@ public class BigDataViewer
 			final ViewerOptions options )
 	{
 		final InputTriggerConfig inputTriggerConfig = getInputTriggerConfig( options );
+		if ( options.values.getTransformEventHandlerFactory() instanceof BehaviourTransformEventHandlerFactory )
+			( ( BehaviourTransformEventHandlerFactory< ? > ) options.values.getTransformEventHandlerFactory() ).setConfig( inputTriggerConfig );
 
 		viewerFrame = new ViewerFrame( sources, numTimepoints, cache, options.inputTriggerConfig( inputTriggerConfig ) );
 		if ( windowTitle != null )
@@ -374,11 +375,11 @@ public class BigDataViewer
 
 		movieDialog = new RecordMovieDialog( viewerFrame, viewer, progressWriter );
 		// this is just to get updates of window size:
-		viewer.getDisplay().overlays().add( movieDialog );
+		viewer.getDisplay().addOverlayRenderer( movieDialog );
 
 		movieMaxProjectDialog = new RecordMaxProjectionDialog( viewerFrame, viewer, progressWriter );
 		// this is just to get updates of window size:
-		viewer.getDisplay().overlays().add( movieMaxProjectDialog );
+		viewer.getDisplay().addOverlayRenderer( movieMaxProjectDialog );
 
 		activeSourcesDialog = new VisibilityAndGroupingDialog( viewerFrame, viewer.state() );
 
@@ -412,13 +413,8 @@ public class BigDataViewer
 			}
 		} );
 
-		final Actions navigationActions = new Actions( inputTriggerConfig, "bdv", "navigation" );
-		navigationActions.install( viewerFrame.getKeybindings(), "navigation" );
-		NavigationActions.install( navigationActions, viewer, false ); // TODO: expose is2D through ViewerOptions
-
-		final Actions bdvActions = new Actions( inputTriggerConfig, "bdv" );
-		bdvActions.install( viewerFrame.getKeybindings(), "bdv" );
-		BigDataViewerActions.install( bdvActions, this );
+		NavigationActions.installActionBindings( viewerFrame.getKeybindings(), viewer, inputTriggerConfig );
+		BigDataViewerActions.installActionBindings( viewerFrame.getKeybindings(), this, inputTriggerConfig );
 
 		final JMenuBar menubar = new JMenuBar();
 		JMenu menu = new JMenu( "File" );

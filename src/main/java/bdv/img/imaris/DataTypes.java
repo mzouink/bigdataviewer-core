@@ -44,16 +44,16 @@ import net.imglib2.type.volatiles.VolatileUnsignedShortType;
 
 class DataTypes
 {
-	interface DataType<
+	static interface DataType<
 			T extends NativeType< T >,
 			V extends Volatile< T > & NativeType< V > ,
 			A extends VolatileAccess >
 	{
-		T getType();
+		public T getType();
 
-		V getVolatileType();
+		public V getVolatileType();
 
-		CacheArrayLoader< A > createArrayLoader( final IHDF5Access hdf5Access );
+		public CacheArrayLoader< A > createArrayLoader( final IHDF5Access hdf5Access );
 	}
 
 	static DataType< UnsignedByteType, VolatileUnsignedByteType, VolatileByteArray > UnsignedByte =

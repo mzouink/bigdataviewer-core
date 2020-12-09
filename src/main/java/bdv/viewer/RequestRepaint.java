@@ -33,5 +33,5 @@ public interface RequestRepaint
 	/**
 	 * Repaint as soon as possible.
 	 */
-	void requestRepaint();
+	public void requestRepaint();
 }

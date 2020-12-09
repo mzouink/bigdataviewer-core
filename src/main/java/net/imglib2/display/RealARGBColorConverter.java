@@ -35,7 +35,7 @@ import net.imglib2.type.numeric.RealType;
 
 public interface RealARGBColorConverter< R extends RealType< ? > > extends ColorConverter, Converter< R, ARGBType >
 {
-	static < R extends RealType< ? > > RealARGBColorConverter< R > create( final R type, final double min, final double max )
+	public static < R extends RealType< ? > > RealARGBColorConverter< R > create( final R type, final double min, final double max )
 	{
 		return Instances.create( type, min, max );
 	}
@@ -57,7 +57,7 @@ class Instances
 					provider = new ClassCopyProvider<>( Imp.class, RealARGBColorConverter.class, double.class, double.class );
 			}
 		}
-		return provider.newInstanceForKey( type.getClass(), min, max );
+		return provider.newInstanceForKey( type, min, max );
 	}
 
 	public static class Imp< R extends RealType< ? > > implements RealARGBColorConverter< R >

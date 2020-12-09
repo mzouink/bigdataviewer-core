@@ -70,9 +70,9 @@ public class SliderPanelDouble extends JPanel implements BoundedValueDouble.Upda
 
 	private RangeListener rangeListener;
 
-	public interface RangeListener
+	public static interface RangeListener
 	{
-		void rangeChanged();
+		public void rangeChanged();
 	}
 
 	/**

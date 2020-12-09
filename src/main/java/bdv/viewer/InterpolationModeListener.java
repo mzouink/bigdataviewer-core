@@ -30,5 +30,5 @@ package bdv.viewer;
 
 public interface InterpolationModeListener
 {
-	void interpolationModeChanged( final Interpolation mode );
+	public void interpolationModeChanged( final Interpolation mode );
 }

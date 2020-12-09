@@ -28,12 +28,12 @@
  */
 package bdv.viewer;
 
-import bdv.TransformEventHandler3D;
 import java.awt.event.KeyListener;
 
 import org.scijava.ui.behaviour.KeyPressedManager;
 import org.scijava.ui.behaviour.io.InputTriggerConfig;
 
+import bdv.BehaviourTransformEventHandler3D;
 import bdv.viewer.animate.MessageOverlayAnimator;
 import bdv.viewer.render.AccumulateProjector;
 import bdv.viewer.render.AccumulateProjectorARGB;
@@ -41,12 +41,12 @@ import bdv.viewer.render.AccumulateProjectorFactory;
 import bdv.viewer.render.MultiResolutionRenderer;
 import net.imglib2.realtransform.AffineTransform3D;
 import net.imglib2.type.numeric.ARGBType;
-import bdv.TransformEventHandlerFactory;
+import net.imglib2.ui.TransformEventHandlerFactory;
 
 /**
  * Optional parameters for {@link ViewerPanel}.
  *
- * @author Tobias Pietzsch
+ * @author Tobias Pietzsch &lt;tobias.pietzsch@gmail.com&gt;
  */
 public class ViewerOptions
 {
@@ -111,6 +111,19 @@ public class ViewerOptions
 	}
 
 	/**
+	 * Set whether to used double buffered rendering.
+	 *
+	 * @param d
+	 *            Whether to use double buffered rendering.
+	 * @see MultiResolutionRenderer
+	 */
+	public ViewerOptions doubleBuffered( final boolean d )
+	{
+		values.doubleBuffered = d;
+		return this;
+	}
+
+	/**
 	 * Set how many threads to use for rendering.
 	 *
 	 * @param n
@@ -155,7 +168,7 @@ public class ViewerOptions
 		return this;
 	}
 
-	public ViewerOptions transformEventHandlerFactory( final TransformEventHandlerFactory f )
+	public ViewerOptions transformEventHandlerFactory( final TransformEventHandlerFactory< AffineTransform3D > f )
 	{
 		values.transformEventHandlerFactory = f;
 		return this;
@@ -218,6 +231,8 @@ public class ViewerOptions
 
 		private long targetRenderNanos = 30 * 1000000l;
 
+		private boolean doubleBuffered = true;
+
 		private int numRenderingThreads = 3;
 
 		private int numSourceGroups = 10;
@@ -226,7 +241,7 @@ public class ViewerOptions
 
 		private MessageOverlayAnimator msgOverlay = new MessageOverlayAnimator( 800 );
 
-		private TransformEventHandlerFactory transformEventHandlerFactory = TransformEventHandler3D::new;
+		private TransformEventHandlerFactory< AffineTransform3D > transformEventHandlerFactory = BehaviourTransformEventHandler3D.factory();
 
 		private AccumulateProjectorFactory< ARGBType > accumulateProjectorFactory = AccumulateProjectorARGB.factory;
 
@@ -241,14 +256,14 @@ public class ViewerOptions
 				height( height ).
 				screenScales( screenScales ).
 				targetRenderNanos( targetRenderNanos ).
+				doubleBuffered( doubleBuffered ).
 				numRenderingThreads( numRenderingThreads ).
 				numSourceGroups( numSourceGroups ).
 				useVolatileIfAvailable( useVolatileIfAvailable ).
 				msgOverlay( msgOverlay ).
 				transformEventHandlerFactory( transformEventHandlerFactory ).
 				accumulateProjectorFactory( accumulateProjectorFactory ).
-				inputTriggerConfig( inputTriggerConfig ).
-				shareKeyPressedEvents( keyPressedManager );
+				inputTriggerConfig( inputTriggerConfig );
 		}
 
 		public int getWidth()
@@ -271,6 +286,11 @@ public class ViewerOptions
 			return targetRenderNanos;
 		}
 
+		public boolean isDoubleBuffered()
+		{
+			return doubleBuffered;
+		}
+
 		public int getNumRenderingThreads()
 		{
 			return numRenderingThreads;
@@ -291,7 +311,7 @@ public class ViewerOptions
 			return msgOverlay;
 		}
 
-		public TransformEventHandlerFactory getTransformEventHandlerFactory()
+		public TransformEventHandlerFactory< AffineTransform3D > getTransformEventHandlerFactory()
 		{
 			return transformEventHandlerFactory;
 		}

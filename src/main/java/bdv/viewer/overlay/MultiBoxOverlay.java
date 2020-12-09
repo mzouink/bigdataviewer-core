@@ -52,7 +52,7 @@ import net.imglib2.util.LinAlgHelpers;
  * colors depending whether the sources are visible.
  *
  * @author Stephan Saalfeld
- * @author Tobias Pietzsch
+ * @author Tobias Pietzsch &lt;tobias.pietzsch@gmail.com&gt;
  */
 public class MultiBoxOverlay
 {
@@ -70,21 +70,21 @@ public class MultiBoxOverlay
 
 	public interface IntervalAndTransform
 	{
-		boolean isVisible();
+		public boolean isVisible();
 
 		/**
 		 * Get interval of the source (stack) in source-local coordinates.
 		 *
 		 * @return extents of the source.
 		 */
-		Interval getSourceInterval();
+		public Interval getSourceInterval();
 
 		/**
 		 * Current transformation from {@link #getSourceInterval() source} to
 		 * viewer. This is a concatenation of source-local-to-global transform
 		 * and the interactive viewer transform.
 		 */
-		AffineTransform3D getSourceToViewer();
+		public AffineTransform3D getSourceToViewer();
 	}
 
 	/**

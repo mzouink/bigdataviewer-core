@@ -40,7 +40,7 @@ import mpicbg.spim.data.sequence.TimePoint;
  * Render current source name and current timepoint of a {@link ViewerState}
  * into a {@link Graphics2D}.
  *
- * @author Tobias Pietzsch
+ * @author Tobias Pietzsch &lt;tobias.pietzsch@gmail.com&gt;
  */
 public class SourceInfoOverlayRenderer
 {

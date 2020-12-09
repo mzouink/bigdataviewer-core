@@ -36,7 +36,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import net.imglib2.Cursor;
 import net.imglib2.FinalInterval;
+import net.imglib2.IterableInterval;
 import net.imglib2.RandomAccess;
 import net.imglib2.RandomAccessible;
 import net.imglib2.RandomAccessibleInterval;
@@ -44,9 +47,12 @@ import net.imglib2.Volatile;
 import net.imglib2.cache.iotiming.CacheIoTiming;
 import net.imglib2.cache.iotiming.IoStatistics;
 import net.imglib2.converter.Converter;
-import net.imglib2.type.operators.SetZero;
-import net.imglib2.util.Intervals;
-import net.imglib2.util.StopWatch;
+import net.imglib2.img.Img;
+import net.imglib2.img.array.ArrayImgs;
+import net.imglib2.type.numeric.NumericType;
+import net.imglib2.type.numeric.integer.ByteType;
+import net.imglib2.ui.AbstractInterruptibleProjector;
+import net.imglib2.ui.util.StopWatch;
 import net.imglib2.view.Views;
 
 /**
@@ -54,87 +60,75 @@ import net.imglib2.view.Views;
  * {@link #map()} call, the projector has a {@link #isValid() state} that
  * signalizes whether all projected pixels were perfect.
  *
- * @author Stephan Saalfeld
- * @author Tobias Pietzsch
+ * @author Stephan Saalfeld &lt;saalfeld@mpi-cbg.de&gt;
+ * @author Tobias Pietzsch &lt;tobias.pietzsch@gmail.com&gt;
  */
-public class VolatileHierarchyProjector< A extends Volatile< ? >, B extends SetZero > implements VolatileProjector
+public class VolatileHierarchyProjector< A extends Volatile< ? >, B extends NumericType< B > > extends AbstractInterruptibleProjector< A, B > implements VolatileProjector
 {
-	/**
-	 * A converter from the source pixel type to the target pixel type.
-	 */
-	private final Converter< ? super A, B > converter;
+	protected final ArrayList< RandomAccessible< A > > sources = new ArrayList<>();
+
+	private final byte[] maskArray;
+
+	protected final Img< ByteType > mask;
+
+	protected volatile boolean valid = false;
+
+	protected int numInvalidLevels;
 
 	/**
-	 * The target interval. Pixels of the target interval should be set by
-	 * {@link #map}
+	 * Extends of the source to be used for mapping.
 	 */
-	private final RandomAccessibleInterval< B > target;
+	protected final FinalInterval sourceInterval;
 
 	/**
-	 * List of source resolutions starting with the optimal resolution at index
-	 * 0. During each {@link #map(boolean)}, for every pixel, resolution levels
-	 * are successively queried until a valid pixel is found.
+	 * Target width
 	 */
-	private final List< RandomAccessible< A > > sources;
+	protected final int width;
 
 	/**
-	 * Records, for every target pixel, the best (smallest index) source
-	 * resolution level that has provided a valid value. Only better (lower
-	 * index) resolutions are re-tried in successive {@link #map(boolean)}
-	 * calls.
+	 * Target height
 	 */
-	private final byte[] mask;
+	protected final int height;
 
 	/**
-	 * {@code true} iff all target pixels were rendered with valid data from the
-	 * optimal resolution level (level {@code 0}).
+	 * Steps for carriage return. Typically -{@link #width}
 	 */
-	private volatile boolean valid = false;
+	protected final int cr;
 
 	/**
-	 * How many levels (starting from level {@code 0}) have to be re-rendered in
-	 * the next rendering pass, i.e., {@code map()} call.
+	 * A reference to the target image as an iterable. Used for source-less
+	 * operations such as clearing its content.
 	 */
-	private int numInvalidLevels;
-
-	/**
-	 * Source interval which will be used for rendering. This is the 2D target
-	 * interval expanded to source dimensionality (usually 3D) with
-	 * {@code min=max=0} in the additional dimensions.
-	 */
-	private final FinalInterval sourceInterval;
+	protected final IterableInterval< B > iterableTarget;
 
 	/**
 	 * Number of threads to use for rendering
 	 */
-	private final int numThreads;
+	protected final int numThreads;
 
-	/**
-	 * Executor service to be used for rendering
-	 */
-	private final ExecutorService executorService;
+	protected final ExecutorService executorService;
 
 	/**
 	 * Time needed for rendering the last frame, in nano-seconds.
 	 * This does not include time spent in blocking IO.
 	 */
-	private long lastFrameRenderNanoTime;
+	protected long lastFrameRenderNanoTime;
 
 	/**
 	 * Time spent in blocking IO rendering the last frame, in nano-seconds.
 	 */
-	private long lastFrameIoNanoTime; // TODO move to derived implementation for local sources only
+	protected long lastFrameIoNanoTime; // TODO move to derived implementation for local sources only
 
 	/**
 	 * temporary variable to store the number of invalid pixels in the current
 	 * rendering pass.
 	 */
-	private final AtomicInteger numInvalidPixels = new AtomicInteger();
+	protected final AtomicInteger numInvalidPixels = new AtomicInteger();
 
 	/**
-	 * Flag to indicate that someone is trying to {@link #cancel()} rendering.
+	 * Flag to indicate that someone is trying to interrupt rendering.
 	 */
-	private final AtomicBoolean canceled = new AtomicBoolean();
+	protected final AtomicBoolean interrupted = new AtomicBoolean();
 
 	public VolatileHierarchyProjector(
 			final List< ? extends RandomAccessible< A > > sources,
@@ -154,20 +148,26 @@ public class VolatileHierarchyProjector< A extends Volatile< ? >, B extends SetZ
 			final int numThreads,
 			final ExecutorService executorService )
 	{
-		this.converter = converter;
-		this.target = target;
-		this.sources = new ArrayList<>( sources );
-		numInvalidLevels = sources.size();
-		mask = maskArray;
+		super( Math.max( 2, sources.get( 0 ).numDimensions() ), converter, target );
 
-		final int n = Math.max( 2, sources.get( 0 ).numDimensions() );
-		final long[] min = new long[ n ];
-		final long[] max = new long[ n ];
-		min[ 0 ] = target.min( 0 );
+		this.sources.addAll( sources );
+		numInvalidLevels = sources.size();
+
+		this.maskArray = maskArray;
+		mask = ArrayImgs.bytes( maskArray, target.dimension( 0 ), target.dimension( 1 ) );
+
+		iterableTarget = Views.iterable( target );
+
+		for ( int d = 2; d < min.length; ++d )
+			min[ d ] = max[ d ] = 0;
+
 		max[ 0 ] = target.max( 0 );
-		min[ 1 ] = target.min( 1 );
 		max[ 1 ] = target.max( 1 );
 		sourceInterval = new FinalInterval( min, max );
+
+		width = ( int )target.dimension( 0 );
+		height = ( int )target.dimension( 1 );
+		cr = -width;
 
 		this.numThreads = numThreads;
 		this.executorService = executorService;
@@ -179,7 +179,7 @@ public class VolatileHierarchyProjector< A extends Volatile< ? >, B extends SetZ
 	@Override
 	public void cancel()
 	{
-		canceled.set( true );
+		interrupted.set( true );
 	}
 
 	@Override
@@ -205,175 +205,164 @@ public class VolatileHierarchyProjector< A extends Volatile< ? >, B extends SetZ
 	 */
 	public void clearMask()
 	{
-		final int size = ( int ) Intervals.numElements( target );
-		Arrays.fill( mask, 0, size, Byte.MAX_VALUE );
+		Arrays.fill( maskArray, 0, ( int ) mask.size(), Byte.MAX_VALUE );
 		numInvalidLevels = sources.size();
 	}
 
 	/**
 	 * Clear target pixels that were never written.
 	 */
-	private void clearUntouchedTargetPixels()
+	protected void clearUntouchedTargetPixels()
 	{
-		final int[] data = ProjectorUtils.getARGBArrayImgData( target );
-		if ( data != null )
-		{
-			final int size = ( int ) Intervals.numElements( target );
-			for ( int i = 0; i < size; ++i )
-				if ( mask[ i ] == Byte.MAX_VALUE )
-					data[ i ] = 0;
-		}
-		else
-		{
-			int i = 0;
-			for ( final B t : Views.flatIterable( target ) )
-				if ( mask[ i++ ] == Byte.MAX_VALUE )
-					t.setZero();
-		}
+		final Cursor< ByteType > maskCursor = mask.cursor();
+		for ( final B t : iterableTarget )
+			if ( maskCursor.next().get() == Byte.MAX_VALUE )
+				t.setZero();
+	}
+
+	@Override
+	public boolean map()
+	{
+		return map( true );
 	}
 
 	@Override
 	public boolean map( final boolean clearUntouchedTargetPixels )
 	{
-		if ( canceled.get() )
-			return false;
+		interrupted.set( false );
 
-		valid = false;
-
-		final StopWatch stopWatch = StopWatch.createAndStart();
+		final StopWatch stopWatch = new StopWatch();
+		stopWatch.start();
 		final IoStatistics iostat = CacheIoTiming.getIoStatistics();
 		final long startTimeIo = iostat.getIoNanoTime();
 		final long startTimeIoCumulative = iostat.getCumulativeIoNanoTime();
+//		final long startIoBytes = iostat.getIoBytes();
 
-		final int targetHeight = ( int ) target.dimension( 1 );
-		final int numTasks = numThreads <= 1 ? 1 : Math.min( numThreads * 10, targetHeight );
-		final double taskHeight = ( double ) targetHeight / numTasks;
-		final int[] taskStartHeights = new int[ numTasks + 1 ];
-		for ( int i = 0; i < numTasks; ++i )
-			taskStartHeights[ i ] = ( int ) ( i * taskHeight );
-		taskStartHeights[ numTasks ] = targetHeight;
+		final int numTasks;
+		if ( numThreads > 1 )
+		{
+			numTasks = Math.min( numThreads * 10, height );
+		}
+		else
+			numTasks = 1;
+		final double taskHeight = ( double )height / numTasks;
+
+		int i;
+
+		valid = false;
 
 		final boolean createExecutor = ( executorService == null );
 		final ExecutorService ex = createExecutor ? Executors.newFixedThreadPool( numThreads ) : executorService;
-		try
+		for ( i = 0; i < numInvalidLevels && !valid; ++i )
 		{
-			/*
-			 * After the for loop, resolutionLevel is the highest (coarsest)
-			 * resolution for which all pixels could be filled from valid data. This
-			 * means that in the next pass, i.e., map() call, levels up to
-			 * resolutionLevel have to be re-rendered.
-			 */
-			int resolutionLevel;
-			for ( resolutionLevel = 0; resolutionLevel < numInvalidLevels; ++resolutionLevel )
-			{
-				final List< Callable< Void > > tasks = new ArrayList<>( numTasks );
-				for ( int i = 0; i < numTasks; ++i )
-					tasks.add( createMapTask( ( byte ) resolutionLevel, taskStartHeights[ i ], taskStartHeights[ i + 1 ] ) );
-				numInvalidPixels.set( 0 );
-				try
-				{
-					ex.invokeAll( tasks );
-				}
-				catch ( final InterruptedException e )
-				{
-					Thread.currentThread().interrupt();
-				}
-				if ( canceled.get() )
-					return false;
-				if ( numInvalidPixels.get() == 0 )
-					// if this pass was all valid
-					numInvalidLevels = resolutionLevel;
-			}
-		}
-		finally
-		{
-			if ( createExecutor )
-				ex.shutdown();
-		}
+			final byte iFinal = ( byte ) i;
 
-		if ( clearUntouchedTargetPixels && !canceled.get() )
+			valid = true;
+			numInvalidPixels.set( 0 );
+
+			final ArrayList< Callable< Void > > tasks = new ArrayList<>( numTasks );
+			for ( int taskNum = 0; taskNum < numTasks; ++taskNum )
+			{
+				final int myOffset = width * ( int ) ( taskNum * taskHeight );
+				final long myMinY = min[ 1 ] + ( int ) ( taskNum * taskHeight );
+				final int myHeight = ( int ) ( ( (taskNum == numTasks - 1 ) ? height : ( int ) ( ( taskNum + 1 ) * taskHeight ) ) - myMinY - min[ 1 ] );
+
+				final Callable< Void > r = new Callable< Void >()
+				{
+					@Override
+					public Void call()
+					{
+						if ( interrupted.get() )
+							return null;
+
+						final RandomAccess< B > targetRandomAccess = target.randomAccess( target );
+						final Cursor< ByteType > maskCursor = mask.cursor();
+						final RandomAccess< A > sourceRandomAccess = sources.get( iFinal ).randomAccess( sourceInterval );
+						int myNumInvalidPixels = 0;
+
+						final long[] smin = new long[ n ];
+						System.arraycopy( min, 0, smin, 0, n );
+						smin[ 1 ] = myMinY;
+						sourceRandomAccess.setPosition( smin );
+
+						targetRandomAccess.setPosition( min[ 0 ], 0 );
+						targetRandomAccess.setPosition( myMinY, 1 );
+
+						maskCursor.jumpFwd( myOffset );
+
+						for ( int y = 0; y < myHeight; ++y )
+						{
+							if ( interrupted.get() )
+								return null;
+
+							for ( int x = 0; x < width; ++x )
+							{
+								final ByteType m = maskCursor.next();
+								if ( m.get() > iFinal )
+								{
+									final A a = sourceRandomAccess.get();
+									final boolean v = a.isValid();
+									if ( v )
+									{
+										converter.convert( a, targetRandomAccess.get() );
+										m.set( iFinal );
+									}
+									else
+										++myNumInvalidPixels;
+								}
+								sourceRandomAccess.fwd( 0 );
+								targetRandomAccess.fwd( 0 );
+							}
+							++smin[ 1 ];
+							sourceRandomAccess.setPosition( smin );
+							targetRandomAccess.move( cr, 0 );
+							targetRandomAccess.fwd( 1 );
+						}
+						numInvalidPixels.addAndGet( myNumInvalidPixels );
+						if ( myNumInvalidPixels != 0 )
+							valid = false;
+						return null;
+					}
+				};
+				tasks.add( r );
+			}
+			try
+			{
+				ex.invokeAll( tasks );
+			}
+			catch ( final InterruptedException e )
+			{
+				Thread.currentThread().interrupt();
+			}
+			if ( interrupted.get() )
+			{
+//				System.out.println( "interrupted" );
+				if ( createExecutor )
+					ex.shutdown();
+				return false;
+			}
+//			System.out.println( "numInvalidPixels(" + i + ") = " + numInvalidPixels );
+		}
+		if ( createExecutor )
+			ex.shutdown();
+
+		if ( clearUntouchedTargetPixels && !interrupted.get() )
 			clearUntouchedTargetPixels();
 
 		final long lastFrameTime = stopWatch.nanoTime();
+//		final long numIoBytes = iostat.getIoBytes() - startIoBytes;
 		lastFrameIoNanoTime = iostat.getIoNanoTime() - startTimeIo;
 		lastFrameRenderNanoTime = lastFrameTime - ( iostat.getCumulativeIoNanoTime() - startTimeIoCumulative ) / numThreads;
+
 //		System.out.println( "lastFrameTime = " + lastFrameTime / 1000000 );
 //		System.out.println( "lastFrameRenderNanoTime = " + lastFrameRenderNanoTime / 1000000 );
 
+		if ( valid )
+			numInvalidLevels = i - 1;
 		valid = numInvalidLevels == 0;
 
-		return !canceled.get();
-	}
+//		System.out.println( "Mapping complete after " + ( s + 1 ) + " levels." );
 
-	/**
-	 * @return a {@code Callable} that runs
-	 * {@code map(resolutionIndex, startHeight, endHeight)}
-	 */
-	private Callable< Void > createMapTask( final byte resolutionIndex, final int startHeight, final int endHeight )
-	{
-		return Executors.callable( () -> map( resolutionIndex, startHeight, endHeight ), null );
-	}
-
-	/**
-	 * Copy lines from {@code y = startHeight} up to {@code endHeight}
-	 * (exclusive) from source {@code resolutionIndex} to target. Check after
-	 * each line whether rendering was {@link #cancel() canceled}.
-	 * <p>
-	 * Only valid source pixels with a current mask value
-	 * {@code mask>resolutionIndex} are copied to target, and their mask value
-	 * is set to {@code mask=resolutionIndex}. Invalid source pixels are
-	 * ignored. Pixels with {@code mask<=resolutionIndex} are ignored, because
-	 * they have already been written to target during a previous pass.
-	 * <p>
-	 *
-	 * @param resolutionIndex
-	 *     index of source resolution level
-	 * @param startHeight
-	 *     start of line range to copy (relative to target min coordinate)
-	 * @param endHeight
-	 *     end (exclusive) of line range to copy (relative to target min
-	 *     coordinate)
-	 */
-	private void map( final byte resolutionIndex, final int startHeight, final int endHeight )
-	{
-		if ( canceled.get() )
-			return;
-
-		final RandomAccess< B > targetRandomAccess = target.randomAccess( target );
-		final RandomAccess< A > sourceRandomAccess = sources.get( resolutionIndex ).randomAccess( sourceInterval );
-		final int width = ( int ) target.dimension( 0 );
-		final long[] smin = Intervals.minAsLongArray( sourceInterval );
-		int myNumInvalidPixels = 0;
-
-		final int targetMin = ( int ) target.min( 1 );
-		for ( int y = startHeight; y < endHeight; ++y )
-		{
-			if ( canceled.get() )
-				return;
-
-			smin[ 1 ] = y + targetMin;
-			sourceRandomAccess.setPosition( smin );
-			targetRandomAccess.setPosition( smin );
-			final int mi = y * width;
-			for ( int x = 0; x < width; ++x )
-			{
-				if ( mask[ mi + x ] > resolutionIndex )
-				{
-					final A a = sourceRandomAccess.get();
-					final boolean v = a.isValid();
-					if ( v )
-					{
-						converter.convert( a, targetRandomAccess.get() );
-						mask[ mi + x ] = resolutionIndex;
-					}
-					else
-						++myNumInvalidPixels;
-				}
-				sourceRandomAccess.fwd( 0 );
-				targetRandomAccess.fwd( 0 );
-			}
-		}
-
-		numInvalidPixels.addAndGet( myNumInvalidPixels );
+		return !interrupted.get();
 	}
 }

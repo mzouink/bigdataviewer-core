@@ -28,16 +28,10 @@
  */
 package bdv.viewer.render;
 
-/**
- * Render a 2D target copying pixels from a nD source.
- * <p>
- * Rendering can be interrupted, in which case {@link #map} will return false.
- * Also, the rendering time for the last {@link #map} can be queried.
- *
- * @author Tobias Pietzsch
- * @author Stephan Saalfeld
- */
-public interface VolatileProjector
+import net.imglib2.Volatile;
+import net.imglib2.ui.InterruptibleProjector;
+
+public interface VolatileProjector extends InterruptibleProjector
 {
 	/**
 	 * Render the target image.
@@ -46,27 +40,10 @@ public interface VolatileProjector
 	 * @return true if rendering was completed (all target pixels written).
 	 *         false if rendering was interrupted.
 	 */
-	boolean map( boolean clearUntouchedTargetPixels );
-
-	default boolean map()
-	{
-		return map( true );
-	}
+	public boolean map( boolean clearUntouchedTargetPixels );
 
 	/**
-	 * Abort {@link #map()} if it is currently running.
+	 * @return true if all mapped pixels were {@link Volatile#isValid() valid}.
 	 */
-	void cancel();
-
-	/**
-	 * How many nano-seconds did the last {@link #map()} take.
-	 *
-	 * @return time needed for rendering the last frame, in nano-seconds.
-	 */
-	long getLastFrameRenderNanoTime();
-
-	/**
-	 * @return true if all mapped pixels were valid.
-	 */
-	boolean isValid();
+	public boolean isValid();
 }

@@ -1,4 +1,4 @@
-/*
+/*-
  * #%L
  * BigDataViewer core classes with minimal dependencies.
  * %%
@@ -28,15 +28,11 @@
  */
 package bdv;
 
-/**
- * Factory for {@code TransformEventHandler}.
- *
- * @author Tobias Pietzsch
- */
-public interface TransformEventHandlerFactory
+import org.scijava.ui.behaviour.util.TriggerBehaviourBindings;
+
+import net.imglib2.ui.TransformEventHandler;
+
+public interface BehaviourTransformEventHandler< A > extends TransformEventHandler< A >
 {
-	/**
-	 * Create a new {@code TransformEventHandler}.
-	 */
-	TransformEventHandler create( TransformState transformState );
+	public void install( final TriggerBehaviourBindings bindings );
 }

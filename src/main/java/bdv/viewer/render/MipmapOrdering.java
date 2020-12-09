@@ -47,9 +47,9 @@ public interface MipmapOrdering
 	 * @param previousTimepoint
 	 *            previous timepoint index
 	 */
-	MipmapHints getMipmapHints( AffineTransform3D screenTransform, int timepoint, int previousTimepoint );
+	public MipmapHints getMipmapHints( AffineTransform3D screenTransform, int timepoint, int previousTimepoint );
 
-	class Level
+	public static class Level
 	{
 		// level index in Source
 		private final int mipmapLevel;
@@ -111,7 +111,7 @@ public interface MipmapOrdering
 		}
 	}
 
-	class RenderOrderComparator implements Comparator< Level >
+	public static class RenderOrderComparator implements Comparator< Level >
 	{
 		@Override
 		public int compare( final Level o1, final Level o2 )
@@ -120,7 +120,7 @@ public interface MipmapOrdering
 		}
 	}
 
-	class PrefetchOrderComparator implements Comparator< Level >
+	public static class PrefetchOrderComparator implements Comparator< Level >
 	{
 		@Override
 		public int compare( final Level o1, final Level o2 )
@@ -129,11 +129,11 @@ public interface MipmapOrdering
 		}
 	}
 
-	RenderOrderComparator renderOrderComparator = new RenderOrderComparator();
+	public static RenderOrderComparator renderOrderComparator = new RenderOrderComparator();
 
-	PrefetchOrderComparator prefetchOrderComparator = new PrefetchOrderComparator();
+	public static PrefetchOrderComparator prefetchOrderComparator = new PrefetchOrderComparator();
 
-	class MipmapHints
+	public static class MipmapHints
 	{
 		private final List< Level > levels;
 

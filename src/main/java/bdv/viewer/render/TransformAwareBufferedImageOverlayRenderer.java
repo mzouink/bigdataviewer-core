@@ -26,30 +26,24 @@
  * POSSIBILITY OF SUCH DAMAGE.
  * #L%
  */
-package bdv.viewer.render.awt;
+package bdv.viewer.render;
 
-import bdv.util.TripleBuffer;
-import bdv.util.TripleBuffer.ReadableBuffer;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
-import net.imglib2.realtransform.AffineTransform3D;
-import bdv.viewer.OverlayRenderer;
-import bdv.viewer.render.RenderTarget;
-import bdv.viewer.TransformListener;
-import org.scijava.listeners.Listeners;
+import java.util.concurrent.CopyOnWriteArrayList;
 
-/**
- * {@link OverlayRenderer} drawing a {@link BufferedImage}, scaled to fill the
- * canvas. It can be used as a {@link RenderTarget}, such that the
- * {@link BufferedImageRenderResult} to draw is set by a renderer.
- *
- * @author Tobias Pietzsch
- */
-public class BufferedImageOverlayRenderer implements OverlayRenderer, RenderTarget< BufferedImageRenderResult >
+import net.imglib2.realtransform.AffineTransform3D;
+import net.imglib2.ui.OverlayRenderer;
+import net.imglib2.ui.TransformListener;
+import net.imglib2.ui.overlay.BufferedImageOverlayRenderer;
+
+public class TransformAwareBufferedImageOverlayRenderer extends BufferedImageOverlayRenderer implements TransformAwareRenderTarget
 {
-	private final TripleBuffer< BufferedImageRenderResult > tripleBuffer;
+	protected AffineTransform3D pendingTransform;
+
+	protected AffineTransform3D paintedTransform;
 
 	/**
 	 * These listeners will be notified about the transform that is associated
@@ -57,109 +51,107 @@ public class BufferedImageOverlayRenderer implements OverlayRenderer, RenderTarg
 	 * {@link OverlayRenderer}s that need to exactly match the transform of
 	 * their overlaid content to the transform of the image.
 	 */
-	private final Listeners.List< TransformListener< AffineTransform3D > > paintedTransformListeners;
+	protected final CopyOnWriteArrayList< TransformListener< AffineTransform3D > > paintedTransformListeners;
 
-	private final AffineTransform3D paintedTransform;
-
-	/**
-	 * The current canvas width.
-	 */
-	private volatile int width;
-
-	/**
-	 * The current canvas height.
-	 */
-	private volatile int height;
-
-	public BufferedImageOverlayRenderer()
+	public TransformAwareBufferedImageOverlayRenderer()
 	{
-		tripleBuffer = new TripleBuffer<>( BufferedImageRenderResult::new );
-		width = 0;
-		height = 0;
+		super();
+		pendingTransform = new AffineTransform3D();
 		paintedTransform = new AffineTransform3D();
-		paintedTransformListeners = new Listeners.SynchronizedList<>( l -> l.transformChanged( paintedTransform ) );
+		paintedTransformListeners = new CopyOnWriteArrayList<>();
 	}
 
 	@Override
-	public BufferedImageRenderResult getReusableRenderResult()
+	public synchronized BufferedImage setBufferedImageAndTransform( final BufferedImage img, final AffineTransform3D transform )
 	{
-		return tripleBuffer.getWritableBuffer();
-	}
-
-	@Override
-	public BufferedImageRenderResult createRenderResult()
-	{
-		return new BufferedImageRenderResult();
-	}
-
-	/**
-	 * Set the {@code RenderResult} that is to be drawn on the canvas.
-	 *
-	 * @param result
-	 *            image to draw (may be null).
-	 */
-	@Override
-	public synchronized void setRenderResult( final BufferedImageRenderResult result )
-	{
-		tripleBuffer.doneWriting( result );
-	}
-
-	@Override
-	public int getWidth()
-	{
-		return width;
-	}
-
-	@Override
-	public int getHeight()
-	{
-		return height;
+		pendingTransform.set( transform );
+		return super.setBufferedImage( img );
 	}
 
 	@Override
 	public void drawOverlays( final Graphics g )
 	{
-		final ReadableBuffer< BufferedImageRenderResult > rb = tripleBuffer.getReadableBuffer();
-		final BufferedImageRenderResult result = rb.getBuffer();
-		final BufferedImage image = result != null ? result.getBufferedImage() : null;
-		if ( image != null )
+		boolean notifyTransformListeners = false;
+		synchronized ( this )
 		{
+			if ( pending )
+			{
+				final BufferedImage tmp = bufferedImage;
+				bufferedImage = pendingImage;
+				paintedTransform.set( pendingTransform );
+				pendingImage = tmp;
+				pending = false;
+				notifyTransformListeners = true;
+			}
+		}
+		if ( bufferedImage != null )
+		{
+//			final StopWatch watch = new StopWatch();
+//			watch.start();
 //			( ( Graphics2D ) g ).setRenderingHint( RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR );
 			( ( Graphics2D ) g ).setRenderingHint( RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR );
 			( ( Graphics2D ) g ).setRenderingHint( RenderingHints.KEY_ALPHA_INTERPOLATION, RenderingHints.VALUE_ALPHA_INTERPOLATION_SPEED );
 			( ( Graphics2D ) g ).setRenderingHint( RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF );
 			( ( Graphics2D ) g ).setRenderingHint( RenderingHints.KEY_COLOR_RENDERING, RenderingHints.VALUE_COLOR_RENDER_SPEED );
 			( ( Graphics2D ) g ).setRenderingHint( RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_SPEED );
-
-			final double scaleFactor = result.getScaleFactor();
-			final int w = Math.max( width, ( int ) ( image.getWidth() / scaleFactor + 0.5 ) );
-			final int h = Math.max( height, ( int ) ( image.getHeight() / scaleFactor + 0.5 ) );
-			g.drawImage( image, 0, 0, w, h, null );
-
-			if ( rb.isUpdated() )
-			{
-				paintedTransform.set( result.getViewerTransform() );
-				paintedTransformListeners.list.forEach( listener -> listener.transformChanged( paintedTransform ) );
-			}
+			g.drawImage( bufferedImage, 0, 0, getWidth(), getHeight(), null );
+			if ( notifyTransformListeners )
+				for ( final TransformListener< AffineTransform3D > listener : paintedTransformListeners )
+					listener.transformChanged( paintedTransform );
+//			System.out.println( String.format( "g.drawImage() :%4d ms", watch.nanoTime() / 1000000 ) );
 		}
 	}
 
-	@Override
-	public void setCanvasSize( final int width, final int height )
-	{
-		this.width = width;
-		this.height = height;
-	}
-
 	/**
-	 * Add/remove {@code TransformListener}s to notify about viewer transformation
+	 * Add a {@link TransformListener} to notify about viewer transformation
 	 * changes. Listeners will be notified when a new image has been rendered
 	 * (immediately before that image is displayed) with the viewer transform
 	 * used to render that image.
+	 *
+	 * @param listener
+	 *            the transform listener to add.
 	 */
-	public Listeners< TransformListener< AffineTransform3D > > transformListeners()
+	@Override
+	public void addTransformListener( final TransformListener< AffineTransform3D > listener )
 	{
-		return paintedTransformListeners;
+		addTransformListener( listener, Integer.MAX_VALUE );
+	}
+
+	/**
+	 * Add a {@link TransformListener} to notify about viewer transformation
+	 * changes. Listeners will be notified when a new image has been rendered
+	 * (immediately before that image is displayed) with the viewer transform
+	 * used to render that image.
+	 *
+	 * @param listener
+	 *            the transform listener to add.
+	 * @param index
+	 *            position in the list of listeners at which to insert this one.
+	 */
+	@Override
+	public void addTransformListener( final TransformListener< AffineTransform3D > listener, final int index )
+	{
+		synchronized ( paintedTransformListeners )
+		{
+			final int s = paintedTransformListeners.size();
+			paintedTransformListeners.add( index < 0 ? 0 : index > s ? s : index, listener );
+			listener.transformChanged( paintedTransform );
+		}
+	}
+
+	/**
+	 * Remove a {@link TransformListener}.
+	 *
+	 * @param listener
+	 *            the transform listener to remove.
+	 */
+	@Override
+	public void removeTransformListener( final TransformListener< AffineTransform3D > listener )
+	{
+		synchronized ( paintedTransformListeners )
+		{
+			paintedTransformListeners.remove( listener );
+		}
 	}
 
 	/**
@@ -170,8 +162,9 @@ public class BufferedImageOverlayRenderer implements OverlayRenderer, RenderTarg
 	 * ViewerPanel not being garbage-collected when ViewerFrame is closed. So
 	 * instead we need to manually let go of resources...
 	 */
-	public void kill()
+	void kill()
 	{
-		tripleBuffer.clear();
+		bufferedImage = null;
+		pendingImage = null;
 	}
 }

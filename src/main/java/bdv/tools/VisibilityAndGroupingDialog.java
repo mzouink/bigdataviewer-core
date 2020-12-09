@@ -28,11 +28,11 @@
  */
 package bdv.tools;
 
-import bdv.util.DelayedPackDialog;
 import bdv.viewer.SourceAndConverter;
 import bdv.viewer.ViewerState;
 import bdv.viewer.VisibilityAndGrouping;
 import bdv.viewer.SourceGroup;
+import bdv.viewer.SynchronizedViewerState;
 import bdv.viewer.ViewerStateChange;
 import bdv.viewer.ViewerStateChangeListener;
 import java.awt.BorderLayout;
@@ -42,16 +42,12 @@ import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.awt.Window;
 import java.awt.event.ActionEvent;
-import java.awt.event.ComponentAdapter;
-import java.awt.event.ComponentEvent;
 import java.awt.event.KeyEvent;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import javax.swing.AbstractAction;
 import javax.swing.Action;
@@ -62,17 +58,19 @@ import javax.swing.ButtonGroup;
 import javax.swing.InputMap;
 import javax.swing.JCheckBox;
 import javax.swing.JComponent;
+import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JRadioButton;
 import javax.swing.JTextField;
 import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
+import javax.swing.WindowConstants;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 
 @Deprecated
-public class VisibilityAndGroupingDialog extends DelayedPackDialog
+public class VisibilityAndGroupingDialog extends JDialog
 {
 	private static final long serialVersionUID = 1L;
 
@@ -91,7 +89,7 @@ public class VisibilityAndGroupingDialog extends DelayedPackDialog
 	{
 		super( owner, "visibility and grouping", false );
 
-		visibilityPanel = new VisibilityPanel( state, this::isVisible );
+		visibilityPanel = new VisibilityPanel( state );
 		visibilityPanel.setBorder( BorderFactory.createCompoundBorder(
 				BorderFactory.createEmptyBorder( 4, 2, 4, 2 ),
 				BorderFactory.createCompoundBorder(
@@ -100,7 +98,7 @@ public class VisibilityAndGroupingDialog extends DelayedPackDialog
 								"visibility" ),
 						BorderFactory.createEmptyBorder( 2, 2, 2, 2 ) ) ) );
 
-		groupingPanel = new GroupingPanel( state, this::isVisible );
+		groupingPanel = new GroupingPanel( state );
 		groupingPanel.setBorder( BorderFactory.createCompoundBorder(
 				BorderFactory.createEmptyBorder( 4, 2, 4, 2 ),
 				BorderFactory.createCompoundBorder(
@@ -109,14 +107,14 @@ public class VisibilityAndGroupingDialog extends DelayedPackDialog
 								"grouping" ),
 						BorderFactory.createEmptyBorder( 2, 2, 2, 2 ) ) ) );
 
-		modePanel = new ModePanel( state, this::isVisible );
+		modePanel = new ModePanel( state );
 
 		final JPanel content = new JPanel();
 		content.setLayout( new BoxLayout( content, BoxLayout.PAGE_AXIS ) );
 		content.add( visibilityPanel );
 		content.add( groupingPanel );
 		content.add( modePanel );
-		add( content, BorderLayout.NORTH );
+		getContentPane().add( content, BorderLayout.NORTH );
 
 		final ActionMap am = getRootPane().getActionMap();
 		final InputMap im = getRootPane().getInputMap( JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT );
@@ -134,18 +132,8 @@ public class VisibilityAndGroupingDialog extends DelayedPackDialog
 		im.put( KeyStroke.getKeyStroke( KeyEvent.VK_ESCAPE, 0 ), hideKey );
 		am.put( hideKey, hideAction );
 
-		addComponentListener( new ComponentAdapter()
-		{
-			@Override
-			public void componentShown( final ComponentEvent e )
-			{
-				visibilityPanel.shown();
-				groupingPanel.shown();
-				modePanel.shown();
-			}
-		} );
-
 		pack();
+		setDefaultCloseOperation( WindowConstants.HIDE_ON_CLOSE );
 	}
 
 	public void update()
@@ -167,128 +155,91 @@ public class VisibilityAndGroupingDialog extends DelayedPackDialog
 
 		private final ArrayList< Consumer< Set< SourceAndConverter< ? > > > > updateVisibleBoxes = new ArrayList<>();
 
-		private final BooleanSupplier isVisible;
-
-		public VisibilityPanel( final ViewerState state, BooleanSupplier isVisible )
+		public VisibilityPanel( final ViewerState state )
 		{
 			super( new GridBagLayout() );
 			this.state = state;
-			this.isVisible = isVisible;
 			state.changeListeners().add( this );
-		}
-
-		private void shown()
-		{
-			if ( recreateContentPending.getAndSet( false ) )
-				recreateContentNow();
-			if ( updatePending.getAndSet( false ) )
-				updateNow();
-		}
-
-		private final AtomicBoolean recreateContentPending = new AtomicBoolean( true );
-
-		private void recreateContent()
-		{
-			if ( isVisible.getAsBoolean() )
-			{
-				recreateContentNow();
-				recreateContentPending.set( false );
-			}
-			else
-				recreateContentPending.set( true );
-		}
-
-		private void recreateContentNow()
-		{
 			synchronized ( state )
 			{
-				removeAll();
-				currentButtonsMap.clear();
-				updateActiveBoxes.clear();
-				updateVisibleBoxes.clear();
-
-				final List< SourceAndConverter< ? > > sources = state.getSources();
-
-				final GridBagConstraints c = new GridBagConstraints();
-				c.insets = new Insets( 0, 5, 0, 5 );
-
-				// source names
-				c.gridx = 0;
-				c.gridy = 0;
-				add( new JLabel( "source" ), c );
-				c.anchor = GridBagConstraints.LINE_END;
-				c.gridy = GridBagConstraints.RELATIVE;
-				for ( final SourceAndConverter< ? > source : sources )
-					add( new JLabel( source.getSpimSource().getName() ), c );
-
-				// "current" radio-buttons
-				c.anchor = GridBagConstraints.CENTER;
-				c.gridx = 1;
-				c.gridy = 0;
-				add( new JLabel( "current" ), c );
-				c.gridy = GridBagConstraints.RELATIVE;
-				final ButtonGroup currentButtonGroup = new ButtonGroup();
-				for ( final SourceAndConverter< ? > source : sources )
-				{
-					final JRadioButton b = new JRadioButton();
-					b.addActionListener( e -> {
-						if ( b.isSelected() )
-							state.setCurrentSource( source );
-					} );
-					currentButtonsMap.put( source, b );
-					currentButtonGroup.add( b );
-					add( b, c );
-				}
-
-				// "active in fused" check-boxes
-				c.gridx = 2;
-				c.gridy = 0;
-				add( new JLabel( "active in fused" ), c );
-				c.gridy = GridBagConstraints.RELATIVE;
-				for ( final SourceAndConverter< ? > source : sources )
-				{
-					final JCheckBox b = new JCheckBox();
-					b.addActionListener( e -> state.setSourceActive( source, b.isSelected() ) );
-					updateActiveBoxes.add( active -> b.setSelected( active.contains( source ) ) );
-					add( b, c );
-				}
-
-				// "currently visible" check-boxes
-				c.gridx = 3;
-				c.gridy = 0;
-				add( new JLabel( "visible" ), c );
-				c.gridy = GridBagConstraints.RELATIVE;
-				for ( final SourceAndConverter< ? > source : sources )
-				{
-					final JCheckBox b = new JCheckBox();
-					updateVisibleBoxes.add( visible -> b.setSelected( visible.contains( source ) ) );
-					b.setEnabled( false );
-					add( b, c );
-				}
-
-				invalidate();
-				final Window frame = SwingUtilities.getWindowAncestor( this );
-				if ( frame != null )
-					frame.pack();
-
+				recreateContent();
 				update();
 			}
 		}
 
-		private final AtomicBoolean updatePending = new AtomicBoolean( true );
-
-		private void update()
+		protected void recreateContent()
 		{
-			if ( isVisible.getAsBoolean() )
+			removeAll();
+			currentButtonsMap.clear();
+			updateActiveBoxes.clear();
+			updateVisibleBoxes.clear();
+
+			final List< SourceAndConverter < ? > > sources = state.getSources();
+
+			final GridBagConstraints c = new GridBagConstraints();
+			c.insets = new Insets( 0, 5, 0, 5 );
+
+			// source names
+			c.gridx = 0;
+			c.gridy = 0;
+			add( new JLabel( "source" ), c );
+			c.anchor = GridBagConstraints.LINE_END;
+			c.gridy = GridBagConstraints.RELATIVE;
+			for ( final SourceAndConverter< ? > source : sources )
+				add( new JLabel( source.getSpimSource().getName() ), c );
+
+			// "current" radio-buttons
+			c.anchor = GridBagConstraints.CENTER;
+			c.gridx = 1;
+			c.gridy = 0;
+			add( new JLabel( "current" ), c );
+			c.gridy = GridBagConstraints.RELATIVE;
+			final ButtonGroup currentButtonGroup = new ButtonGroup();
+			for ( final SourceAndConverter< ? > source : sources )
 			{
-				updateNow();
-				updatePending.set( false );
+				final JRadioButton b = new JRadioButton();
+				b.addActionListener( e -> {
+					if ( b.isSelected() )
+						state.setCurrentSource( source );
+				} );
+				currentButtonsMap.put( source, b );
+				currentButtonGroup.add( b );
+				add( b, c );
 			}
-			else
-				updatePending.set( true );
+
+			// "active in fused" check-boxes
+			c.gridx = 2;
+			c.gridy = 0;
+			add( new JLabel( "active in fused" ), c );
+			c.gridy = GridBagConstraints.RELATIVE;
+			for ( final SourceAndConverter< ? > source : sources )
+			{
+				final JCheckBox b = new JCheckBox();
+				b.addActionListener( e -> state.setSourceActive( source, b.isSelected() ) );
+				updateActiveBoxes.add( active -> b.setSelected( active.contains( source ) ) );
+				add( b, c );
+			}
+
+			// "currently visible" check-boxes
+			c.gridx = 3;
+			c.gridy = 0;
+			add( new JLabel( "visible" ), c );
+			c.gridy = GridBagConstraints.RELATIVE;
+			for ( final SourceAndConverter< ? > source : sources )
+			{
+				final JCheckBox b = new JCheckBox();
+				updateVisibleBoxes.add( visible -> b.setSelected( visible.contains( source ) ) );
+				b.setEnabled( false );
+				add( b, c );
+			}
+
+			invalidate();
+			final Window frame = SwingUtilities.getWindowAncestor( this );
+			if ( frame != null )
+				frame.pack();
 		}
 
-		private void updateNow()
+		protected void update()
 		{
 			final SourceAndConverter< ? > currentSource = state.getCurrentSource();
 			if ( currentSource == null )
@@ -306,9 +257,6 @@ public class VisibilityAndGroupingDialog extends DelayedPackDialog
 		@Override
 		public void viewerStateChanged( final ViewerStateChange change )
 		{
-			final AtomicBoolean pendingUpdate = new AtomicBoolean();
-			final AtomicBoolean pendingRecreate = new AtomicBoolean();
-
 			switch ( change )
 			{
 			case CURRENT_SOURCE_CHANGED:
@@ -317,7 +265,13 @@ public class VisibilityAndGroupingDialog extends DelayedPackDialog
 				SwingUtilities.invokeLater( this::update );
 				break;
 			case NUM_SOURCES_CHANGED:
-				SwingUtilities.invokeLater( this::recreateContent );
+				SwingUtilities.invokeLater( () -> {
+					synchronized ( state )
+					{
+						recreateContent();
+						update();
+					}
+				} );
 				break;
 			}
 		}
@@ -333,25 +287,16 @@ public class VisibilityAndGroupingDialog extends DelayedPackDialog
 
 		private JCheckBox fusedModeBox;
 
-		private final BooleanSupplier isVisible;
-
-		public ModePanel( final ViewerState state, BooleanSupplier isVisible )
+		public ModePanel( final ViewerState state )
 		{
 			super( new GridBagLayout() );
 			this.state = state;
-			this.isVisible = isVisible;
 			state.changeListeners().add( this );
 			synchronized ( state )
 			{
 				recreateContent();
 				update();
 			}
-		}
-
-		private void shown()
-		{
-			if ( updatePending.getAndSet( false ) )
-				updateNow();
 		}
 
 		private void recreateContent()
@@ -388,20 +333,7 @@ public class VisibilityAndGroupingDialog extends DelayedPackDialog
 			add( new JLabel("enable fused mode"), c );
 		}
 
-		private final AtomicBoolean updatePending = new AtomicBoolean( true );
-
 		private void update()
-		{
-			if ( isVisible.getAsBoolean() )
-			{
-				updateNow();
-				updatePending.set( false );
-			}
-			else
-				updatePending.set( true );
-		}
-
-		private void updateNow()
 		{
 			groupingBox.setSelected( state.getDisplayMode().hasGrouping() );
 			fusedModeBox.setSelected( state.getDisplayMode().hasFused() );
@@ -429,184 +361,154 @@ public class VisibilityAndGroupingDialog extends DelayedPackDialog
 
 		private final ViewerState state;
 
-		private final BooleanSupplier isVisible;
-
-		public GroupingPanel( final ViewerState state, BooleanSupplier isVisible )
+		public GroupingPanel( final ViewerState state )
 		{
 			super( new GridBagLayout() );
 			this.state = state;
-			this.isVisible = isVisible;
 			state.changeListeners().add( this );
+			synchronized ( state )
+			{
+				recreateContent();
+				update();
+			}
 		}
-
-		private void shown()
-		{
-			if ( recreateContentPending.getAndSet( false ) )
-				recreateContentNow();
-			if ( updateCurrentGroupPending.getAndSet( false ) )
-				updateCurrentGroupNow();
-			if ( updateGroupNamesPending.getAndSet( false ) )
-				updateGroupNamesNow();
-			if ( updateGroupActivityPending.getAndSet( false ) )
-				updateGroupActivityNow();
-			if ( updateGroupAssignmentsPending.getAndSet( false ) )
-				updateGroupAssignmentsNow();
-		}
-
-		private final AtomicBoolean recreateContentPending = new AtomicBoolean( true );
 
 		private void recreateContent()
 		{
-			if ( isVisible.getAsBoolean() )
+			removeAll();
+			updateNames.clear();
+			currentButtonsMap.clear();
+			updateActiveBoxes.clear();
+			updateAssignBoxes.clear();
+
+			final GridBagConstraints c = new GridBagConstraints();
+			c.insets = new Insets( 0, 5, 0, 5 );
+
+			final List< SourceAndConverter< ? > > sources = state.getSources();
+			final List< SourceGroup > groups = state.getGroups();
+
+			// source shortcuts
+			// TODO: shortcut "names" should not be hard-coded here!
+			c.gridx = 0;
+			c.gridy = 0;
+			add( new JLabel( "shortcut" ), c );
+			c.anchor = GridBagConstraints.LINE_END;
+			c.gridy = GridBagConstraints.RELATIVE;
+			final int nShortcuts = Math.min( groups.size(), 10 );
+			for ( int i = 0; i < nShortcuts; ++i )
+				add( new JLabel( Integer.toString( i == 10 ? 0 : i + 1 ) ), c );
+
+			// source names
+			c.gridx = 1;
+			c.gridy = 0;
+			c.anchor = GridBagConstraints.CENTER;
+			add( new JLabel( "group name" ), c );
+			c.anchor = GridBagConstraints.LINE_END;
+			c.gridy = GridBagConstraints.RELATIVE;
+			for ( final SourceGroup group : groups )
 			{
-				recreateContentNow();
-				recreateContentPending.set( false );
-			}
-			else
-				recreateContentPending.set( true );
-		}
-
-		private void recreateContentNow()
-		{
-			synchronized ( state )
-			{
-				removeAll();
-				updateNames.clear();
-				currentButtonsMap.clear();
-				updateActiveBoxes.clear();
-				updateAssignBoxes.clear();
-
-				final GridBagConstraints c = new GridBagConstraints();
-				c.insets = new Insets( 0, 5, 0, 5 );
-
-				final List< SourceAndConverter< ? > > sources = state.getSources();
-				final List< SourceGroup > groups = state.getGroups();
-
-				// source shortcuts
-				// TODO: shortcut "names" should not be hard-coded here!
-				c.gridx = 0;
-				c.gridy = 0;
-				add( new JLabel( "shortcut" ), c );
-				c.anchor = GridBagConstraints.LINE_END;
-				c.gridy = GridBagConstraints.RELATIVE;
-				final int nShortcuts = Math.min( groups.size(), 10 );
-				for ( int i = 0; i < nShortcuts; ++i )
-					add( new JLabel( Integer.toString( i == 10 ? 0 : i + 1 ) ), c );
-
-				// source names
-				c.gridx = 1;
-				c.gridy = 0;
-				c.anchor = GridBagConstraints.CENTER;
-				add( new JLabel( "group name" ), c );
-				c.anchor = GridBagConstraints.LINE_END;
-				c.gridy = GridBagConstraints.RELATIVE;
-				for ( final SourceGroup group : groups )
+				final JTextField tf = new JTextField( state.getGroupName( group ), 10 );
+				tf.getDocument().addDocumentListener( new DocumentListener()
 				{
-					final JTextField tf = new JTextField( state.getGroupName( group ), 10 );
-					tf.getDocument().addDocumentListener( new DocumentListener()
+					private void doit()
 					{
-						private void doit()
-						{
-							state.setGroupName( group, tf.getText() );
-						}
+						state.setGroupName( group, tf.getText() );
+					}
 
-						@Override
-						public void removeUpdate( final DocumentEvent e )
-						{
-							doit();
-						}
+					@Override
+					public void removeUpdate( final DocumentEvent e )
+					{
+						doit();
+					}
 
-						@Override
-						public void insertUpdate( final DocumentEvent e )
-						{
-							doit();
-						}
+					@Override
+					public void insertUpdate( final DocumentEvent e )
+					{
+						doit();
+					}
 
-						@Override
-						public void changedUpdate( final DocumentEvent e )
-						{
-							doit();
-						}
-					} );
-					updateNames.add( () -> {
-						final String name = state.getGroupName( group );
-						if ( !tf.getText().equals( name ) )
-						{
-							tf.setText( name );
-						}
-					} );
-					add( tf, c );
-				}
+					@Override
+					public void changedUpdate( final DocumentEvent e )
+					{
+						doit();
+					}
+				} );
+				updateNames.add( () -> {
+					final String name = state.getGroupName( group );
+					if ( !tf.getText().equals( name ) )
+					{
+						tf.setText( name );
+					}
+				} );
+				add( tf, c );
+			}
 
-				// "current" radio-buttons
-				c.anchor = GridBagConstraints.CENTER;
-				c.gridx = 2;
-				c.gridy = 0;
-				add( new JLabel( "current" ), c );
-				c.gridy = GridBagConstraints.RELATIVE;
-				final ButtonGroup currentButtonGroup = new ButtonGroup();
-				for ( final SourceGroup group : groups )
-				{
-					final JRadioButton b = new JRadioButton();
-					b.addActionListener( e -> {
-						if ( b.isSelected() )
-							state.setCurrentGroup( group );
-					} );
-					currentButtonsMap.put( group, b );
-					currentButtonGroup.add( b );
-					add( b, c );
-				}
+			// "current" radio-buttons
+			c.anchor = GridBagConstraints.CENTER;
+			c.gridx = 2;
+			c.gridy = 0;
+			add( new JLabel( "current" ), c );
+			c.gridy = GridBagConstraints.RELATIVE;
+			final ButtonGroup currentButtonGroup = new ButtonGroup();
+			for ( final SourceGroup group : groups )
+			{
+				final JRadioButton b = new JRadioButton();
+				b.addActionListener( e -> {
+					if ( b.isSelected() )
+						state.setCurrentGroup( group );
+				} );
+				currentButtonsMap.put( group, b );
+				currentButtonGroup.add( b );
+				add( b, c );
+			}
 
-				// "active in fused" check-boxes
-				c.gridx = 3;
-				c.gridy = 0;
-				c.anchor = GridBagConstraints.CENTER;
-				add( new JLabel( "active in fused" ), c );
-				c.gridy = GridBagConstraints.RELATIVE;
+			// "active in fused" check-boxes
+			c.gridx = 3;
+			c.gridy = 0;
+			c.anchor = GridBagConstraints.CENTER;
+			add( new JLabel( "active in fused" ), c );
+			c.gridy = GridBagConstraints.RELATIVE;
+			for ( final SourceGroup group : groups )
+			{
+				final JCheckBox b = new JCheckBox();
+				b.addActionListener( e -> state.setGroupActive( group, b.isSelected() ) );
+				updateActiveBoxes.add( active -> b.setSelected( active.contains( group ) ) );
+				add( b, c );
+			}
+
+			// setup-to-group assignments
+			c.gridx = 4;
+			c.gridy = 0;
+			c.gridwidth = sources.size();
+			c.anchor = GridBagConstraints.CENTER;
+			add( new JLabel( "assigned sources" ), c );
+			c.gridwidth = 1;
+			c.anchor = GridBagConstraints.LINE_END;
+			for ( final SourceAndConverter< ? > source : sources )
+			{
+				c.gridy = 1;
 				for ( final SourceGroup group : groups )
 				{
 					final JCheckBox b = new JCheckBox();
-					b.addActionListener( e -> state.setGroupActive( group, b.isSelected() ) );
-					updateActiveBoxes.add( active -> b.setSelected( active.contains( group ) ) );
+					b.addActionListener( e -> {
+						if ( b.isSelected() )
+							state.addSourceToGroup( source, group );
+						else
+							state.removeSourceFromGroup( source, group );
+					} );
+					updateAssignBoxes.add( () -> {
+						b.setSelected( state.getSourcesInGroup( group ).contains( source ) );
+					} );
 					add( b, c );
+					c.gridy++;
 				}
-
-				// setup-to-group assignments
-				c.gridx = 4;
-				c.gridy = 0;
-				c.gridwidth = sources.size();
-				c.anchor = GridBagConstraints.CENTER;
-				add( new JLabel( "assigned sources" ), c );
-				c.gridwidth = 1;
-				c.anchor = GridBagConstraints.LINE_END;
-				for ( final SourceAndConverter< ? > source : sources )
-				{
-					c.gridy = 1;
-					for ( final SourceGroup group : groups )
-					{
-						final JCheckBox b = new JCheckBox();
-						b.addActionListener( e -> {
-							if ( b.isSelected() )
-								state.addSourceToGroup( source, group );
-							else
-								state.removeSourceFromGroup( source, group );
-						} );
-						updateAssignBoxes.add( () -> {
-							b.setSelected( state.getSourcesInGroup( group ).contains( source ) );
-						} );
-						add( b, c );
-						c.gridy++;
-					}
-					c.gridx++;
-				}
-
-				invalidate();
-				final Window frame = SwingUtilities.getWindowAncestor( this );
-				if ( frame != null )
-					frame.pack();
-
-				update();
+				c.gridx++;
 			}
+
+			invalidate();
+			final Window frame = SwingUtilities.getWindowAncestor( this );
+			if ( frame != null )
+				frame.pack();
 		}
 
 		private void update()
@@ -617,75 +519,23 @@ public class VisibilityAndGroupingDialog extends DelayedPackDialog
 			updateGroupAssignments();
 		}
 
-		private final AtomicBoolean updateGroupNamesPending = new AtomicBoolean( true );
-
 		private void updateGroupNames()
-		{
-			if ( isVisible.getAsBoolean() )
-			{
-				updateGroupNamesNow();
-				updateGroupNamesPending.set( false );
-			}
-			else
-				updateGroupNamesPending.set( true );
-		}
-
-		private void updateGroupNamesNow()
 		{
 			updateNames.forEach( Runnable::run );
 		}
 
-		private final AtomicBoolean updateGroupAssignmentsPending = new AtomicBoolean( true );
-
 		private void updateGroupAssignments()
-		{
-			if ( isVisible.getAsBoolean() )
-			{
-				updateGroupAssignmentsNow();
-				updateGroupAssignmentsPending.set( false );
-			}
-			else
-				updateGroupAssignmentsPending.set( true );
-		}
-
-		private void updateGroupAssignmentsNow()
 		{
 			updateAssignBoxes.forEach( Runnable::run );
 		}
 
-		private final AtomicBoolean updateGroupActivityPending = new AtomicBoolean( true );
-
 		private void updateGroupActivity()
-		{
-			if ( isVisible.getAsBoolean() )
-			{
-				updateGroupActivityNow();
-				updateGroupActivityPending.set( false );
-			}
-			else
-				updateGroupActivityPending.set( true );
-		}
-
-		private void updateGroupActivityNow()
 		{
 			final Set< SourceGroup > activeGroups = state.getActiveGroups();
 			updateActiveBoxes.forEach( c -> c.accept( activeGroups ) );
 		}
 
-		private final AtomicBoolean updateCurrentGroupPending = new AtomicBoolean( true );
-
 		private void updateCurrentGroup()
-		{
-			if ( isVisible.getAsBoolean() )
-			{
-				updateCurrentGroupNow();
-				updateCurrentGroupPending.set( false );
-			}
-			else
-				updateCurrentGroupPending.set( true );
-		}
-
-		private void updateCurrentGroupNow()
 		{
 			final SourceGroup currentGroup = state.getCurrentGroup();
 			if ( currentGroup == null )
@@ -713,7 +563,13 @@ public class VisibilityAndGroupingDialog extends DelayedPackDialog
 				break;
 			case NUM_GROUPS_CHANGED:
 			case NUM_SOURCES_CHANGED:
-				SwingUtilities.invokeLater( this::recreateContent );
+				SwingUtilities.invokeLater( () -> {
+					synchronized ( state )
+					{
+						recreateContent();
+						update();
+					}
+				} );
 				break;
 			}
 		}

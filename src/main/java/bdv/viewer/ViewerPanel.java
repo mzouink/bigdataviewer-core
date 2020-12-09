@@ -28,8 +28,6 @@
  */
 package bdv.viewer;
 
-import bdv.TransformEventHandler;
-import bdv.TransformState;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Font;
@@ -56,13 +54,14 @@ import javax.swing.JPanel;
 import javax.swing.JSlider;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
+import javax.swing.event.ChangeEvent;
+import javax.swing.event.ChangeListener;
 
-import net.imglib2.Interval;
-import bdv.viewer.render.awt.BufferedImageOverlayRenderer;
 import org.jdom2.Element;
 
 import bdv.cache.CacheControl;
 import bdv.util.Affine3DHelpers;
+import bdv.util.InvokeOnEDT;
 import bdv.util.Prefs;
 import bdv.viewer.animate.AbstractTransformAnimator;
 import bdv.viewer.animate.MessageOverlayAnimator;
@@ -74,6 +73,7 @@ import bdv.viewer.overlay.MultiBoxOverlayRenderer;
 import bdv.viewer.overlay.ScaleBarOverlayRenderer;
 import bdv.viewer.overlay.SourceInfoOverlayRenderer;
 import bdv.viewer.render.MultiResolutionRenderer;
+import bdv.viewer.render.TransformAwareBufferedImageOverlayRenderer;
 import bdv.viewer.state.SourceGroup;
 import bdv.viewer.state.ViewerState;
 import bdv.viewer.state.XmlIoViewerState;
@@ -82,13 +82,17 @@ import net.imglib2.RealLocalizable;
 import net.imglib2.RealPoint;
 import net.imglib2.RealPositionable;
 import net.imglib2.realtransform.AffineTransform3D;
-import bdv.viewer.render.PainterThread;
+import net.imglib2.ui.InteractiveDisplayCanvasComponent;
+import net.imglib2.ui.OverlayRenderer;
+import net.imglib2.ui.PainterThread;
+import net.imglib2.ui.TransformEventHandler;
+import net.imglib2.ui.TransformListener;
 import net.imglib2.util.LinAlgHelpers;
-import org.scijava.listeners.Listeners;
+
 
 /**
  * A JPanel for viewing multiple of {@link Source}s. The panel contains a
- * {@link InteractiveDisplayCanvas canvas} and a time slider (if there
+ * {@link InteractiveDisplayCanvasComponent canvas} and a time slider (if there
  * are multiple time-points). Maintains a {@link ViewerState render state}, the
  * renderer, and basic navigation help overlays. It has it's own
  * {@link PainterThread} for painting, which is started on construction (use
@@ -96,7 +100,7 @@ import org.scijava.listeners.Listeners;
  *
  * @author Tobias Pietzsch
  */
-public class ViewerPanel extends JPanel implements OverlayRenderer, PainterThread.Paintable, ViewerStateChangeListener, RequestRepaint
+public class ViewerPanel extends JPanel implements OverlayRenderer, TransformListener< AffineTransform3D >, PainterThread.Paintable, ViewerStateChangeListener, RequestRepaint
 {
 	private static final long serialVersionUID = 1L;
 
@@ -114,7 +118,7 @@ public class ViewerPanel extends JPanel implements OverlayRenderer, PainterThrea
 	/**
 	 * TODO
 	 */
-	protected final BufferedImageOverlayRenderer renderTarget;
+	protected final TransformAwareBufferedImageOverlayRenderer renderTarget;
 
 	/**
 	 * Overlay navigation boxes.
@@ -133,13 +137,16 @@ public class ViewerPanel extends JPanel implements OverlayRenderer, PainterThrea
 	 */
 	protected final ScaleBarOverlayRenderer scaleBarOverlayRenderer;
 
-	private final TransformEventHandler transformEventHandler;
+	/**
+	 * Transformation set by the interactive viewer.
+	 */
+	protected final AffineTransform3D viewerTransform;
 
 	/**
 	 * Canvas used for displaying the rendered {@link #renderTarget image} and
 	 * overlays.
 	 */
-	protected final InteractiveDisplayCanvas display;
+	protected final InteractiveDisplayCanvasComponent< AffineTransform3D > display;
 
 	protected final JSlider sliderTime;
 
@@ -176,7 +183,7 @@ public class ViewerPanel extends JPanel implements OverlayRenderer, PainterThrea
 
 	/**
 	 * These listeners will be notified about changes to the
-	 * viewer-transform. This is done <em>before</em> calling
+	 * {@link #viewerTransform}. This is done <em>before</em> calling
 	 * {@link #requestRepaint()} so listeners have the chance to interfere.
 	 */
 	protected final CopyOnWriteArrayList< TransformListener< AffineTransform3D > > transformListeners;
@@ -250,21 +257,23 @@ public class ViewerPanel extends JPanel implements OverlayRenderer, PainterThrea
 		threadGroup = new ThreadGroup( this.toString() );
 		painterThread = new PainterThread( threadGroup, this );
 		painterThread.setDaemon( true );
-		transformEventHandler = options.getTransformEventHandlerFactory().create(
-				TransformState.from( state()::getViewerTransform, state()::setViewerTransform ) );
-		renderTarget = new BufferedImageOverlayRenderer();
-		display = new InteractiveDisplayCanvas( options.getWidth(), options.getHeight() );
-		display.setTransformEventHandler( transformEventHandler );
-		display.overlays().add( renderTarget );
-		display.overlays().add( this );
+		viewerTransform = new AffineTransform3D();
+		display = new InteractiveDisplayCanvasComponent<>(
+				options.getWidth(), options.getHeight(), options.getTransformEventHandlerFactory() );
+		display.addTransformListener( this );
+		renderTarget = new TransformAwareBufferedImageOverlayRenderer();
+		renderTarget.setCanvasSize( options.getWidth(), options.getHeight() );
+		display.addOverlayRenderer( renderTarget );
+		display.addOverlayRenderer( this );
 
 		renderingExecutorService = Executors.newFixedThreadPool(
 				options.getNumRenderingThreads(),
-				new RenderThreadFactory( threadGroup ) );
+				new RenderThreadFactory() );
 		imageRenderer = new MultiResolutionRenderer(
 				renderTarget, painterThread,
 				options.getScreenScales(),
 				options.getTargetRenderNanos(),
+				options.isDoubleBuffered(),
 				options.getNumRenderingThreads(),
 				renderingExecutorService,
 				options.isUseVolatileIfAvailable(),
@@ -409,7 +418,7 @@ public class ViewerPanel extends JPanel implements OverlayRenderer, PainterThrea
 	{
 		assert gPos.length >= 3;
 
-		state().getViewerTransform().applyInverse( gPos, gPos );
+		viewerTransform.applyInverse( gPos, gPos );
 	}
 
 	/**
@@ -423,7 +432,7 @@ public class ViewerPanel extends JPanel implements OverlayRenderer, PainterThrea
 	{
 		assert gPos.numDimensions() >= 3;
 
-		state().getViewerTransform().applyInverse( gPos, gPos );
+		viewerTransform.applyInverse( gPos, gPos );
 	}
 
 	/**
@@ -439,7 +448,7 @@ public class ViewerPanel extends JPanel implements OverlayRenderer, PainterThrea
 		final RealPoint lPos = new RealPoint( 3 );
 		lPos.setPosition( x, 0 );
 		lPos.setPosition( y, 1 );
-		state().getViewerTransform().applyInverse( gPos, lPos );
+		viewerTransform.applyInverse( gPos, lPos );
 	}
 
 	/**
@@ -454,7 +463,7 @@ public class ViewerPanel extends JPanel implements OverlayRenderer, PainterThrea
 		assert gPos.numDimensions() == 3;
 		final RealPoint lPos = new RealPoint( 3 );
 		mouseCoordinates.getMouseCoordinates( lPos );
-		state().getViewerTransform().applyInverse( gPos, lPos );
+		viewerTransform.applyInverse( gPos, lPos );
 	}
 
 	/**
@@ -470,7 +479,7 @@ public class ViewerPanel extends JPanel implements OverlayRenderer, PainterThrea
 	@Override
 	public void paint()
 	{
-		imageRenderer.paint( state.getState() );
+		imageRenderer.paint( state );
 
 		display.repaint();
 
@@ -478,12 +487,12 @@ public class ViewerPanel extends JPanel implements OverlayRenderer, PainterThrea
 		{
 			if ( currentAnimator != null )
 			{
+				final TransformEventHandler< AffineTransform3D > handler = display.getTransformEventHandler();
 				final AffineTransform3D transform = currentAnimator.getCurrent( System.currentTimeMillis() );
-				state().setViewerTransform( transform );
+				handler.setTransform( transform );
+				transformChanged( transform );
 				if ( currentAnimator.isComplete() )
 					currentAnimator = null;
-				else
-					requestRepaint();
 			}
 		}
 	}
@@ -495,11 +504,6 @@ public class ViewerPanel extends JPanel implements OverlayRenderer, PainterThrea
 	public void requestRepaint()
 	{
 		imageRenderer.requestRepaint();
-	}
-
-	public void requestRepaint( final Interval screenInterval )
-	{
-		imageRenderer.requestRepaint( screenInterval );
 	}
 
 	@Override
@@ -547,6 +551,16 @@ public class ViewerPanel extends JPanel implements OverlayRenderer, PainterThrea
 
 		if ( requiresRepaint )
 			display.repaint();
+	}
+
+	@Override
+	public synchronized void transformChanged( final AffineTransform3D transform )
+	{
+		viewerTransform.set( transform );
+		state.setViewerTransform( transform );
+		for ( final TransformListener< AffineTransform3D > l : transformListeners )
+			l.transformChanged( viewerTransform );
+		requestRepaint();
 	}
 
 	@Override
@@ -616,11 +630,7 @@ public class ViewerPanel extends JPanel implements OverlayRenderer, PainterThrea
 			requestRepaint();
 			break;
 		}
-		case VIEWER_TRANSFORM_CHANGED:
-			final AffineTransform3D transform = state().getViewerTransform();
-			for ( final TransformListener< AffineTransform3D > l : transformListeners )
-				l.transformChanged( transform );
-			requestRepaint();
+//		case VIEWER_TRANSFORM_CHANGED:
 		}
 	}
 
@@ -687,7 +697,7 @@ public class ViewerPanel extends JPanel implements OverlayRenderer, PainterThrea
 		final double[] qTarget = new double[ 4 ];
 		LinAlgHelpers.quaternionInvert( qTmpSource, qTarget );
 
-		final AffineTransform3D transform = state().getViewerTransform();
+		final AffineTransform3D transform = display.getTransformEventHandler().getTransform();
 		double centerX;
 		double centerY;
 		if ( mouseCoordinates.isMouseInsidePanel() )
@@ -702,7 +712,7 @@ public class ViewerPanel extends JPanel implements OverlayRenderer, PainterThrea
 		}
 		currentAnimator = new RotationAnimator( transform, centerX, centerY, qTarget, 300 );
 		currentAnimator.setTime( System.currentTimeMillis() );
-		requestRepaint();
+		transformChanged( transform );
 	}
 
 	public synchronized void setTransformAnimator( final AbstractTransformAnimator animator )
@@ -719,7 +729,7 @@ public class ViewerPanel extends JPanel implements OverlayRenderer, PainterThrea
 	// TODO: Deprecate or leave as convenience?
 	public synchronized void toggleInterpolation()
 	{
-		NavigationActions.toggleInterpolation( state() );
+		state().setInterpolation( state().getInterpolation().next() );
 	}
 
 	/**
@@ -741,12 +751,12 @@ public class ViewerPanel extends JPanel implements OverlayRenderer, PainterThrea
 	}
 
 	/**
-	 * @deprecated Modify {@link #state()} directly ({@code state().setViewerTransform(t)})
+	 * Set the viewer transform.
 	 */
-	@Deprecated
-	public void setCurrentViewerTransform( final AffineTransform3D viewerTransform )
+	public synchronized void setCurrentViewerTransform( final AffineTransform3D viewerTransform )
 	{
-		state().setViewerTransform( viewerTransform );
+		display.getTransformEventHandler().setTransform( viewerTransform );
+		transformChanged( viewerTransform );
 	}
 
 	/**
@@ -767,7 +777,13 @@ public class ViewerPanel extends JPanel implements OverlayRenderer, PainterThrea
 	// TODO: Deprecate or leave as convenience?
 	public synchronized void nextTimePoint()
 	{
-		NavigationActions.nextTimePoint( state() );
+		final SynchronizedViewerState state = state();
+		synchronized ( state )
+		{
+			final int t = state.getCurrentTimepoint() + 1;
+			if ( t < state.getNumTimepoints() )
+				state.setCurrentTimepoint( t );
+		}
 	}
 
 	/**
@@ -776,7 +792,13 @@ public class ViewerPanel extends JPanel implements OverlayRenderer, PainterThrea
 	// TODO: Deprecate or leave as convenience?
 	public synchronized void previousTimePoint()
 	{
-		NavigationActions.previousTimePoint( state() );
+		final SynchronizedViewerState state = state();
+		synchronized ( state )
+		{
+			final int t = state.getCurrentTimepoint() - 1;
+			if ( t >= 0 )
+				state.setCurrentTimepoint( t );
+		}
 	}
 
 	/**
@@ -823,14 +845,9 @@ public class ViewerPanel extends JPanel implements OverlayRenderer, PainterThrea
 	 *
 	 * @return the viewer canvas.
 	 */
-	public InteractiveDisplayCanvas getDisplay()
+	public InteractiveDisplayCanvasComponent< AffineTransform3D > getDisplay()
 	{
 		return display;
-	}
-
-	public TransformEventHandler getTransformEventHandler()
-	{
-		return transformEventHandler;
 	}
 
 	/**
@@ -884,34 +901,37 @@ public class ViewerPanel extends JPanel implements OverlayRenderer, PainterThrea
 	}
 
 	/**
-	 * Add/remove {@code TransformListener}s to notify about viewer transformation
+	 * Add a {@link TransformListener} to notify about viewer transformation
 	 * changes. Listeners will be notified when a new image has been painted
 	 * with the viewer transform used to render that image.
-	 * <p>
+	 *
 	 * This happens immediately after that image is painted onto the screen,
 	 * before any overlays are painted.
+	 *
+	 * @param listener
+	 *            the transform listener to add.
 	 */
-	public Listeners< TransformListener< AffineTransform3D > > renderTransformListeners()
-	{
-		return renderTarget.transformListeners();
-	}
-
-	/**
-	 * @deprecated Use {@code renderTransformListeners().add( listener )}.
-	 */
-	@Deprecated
 	public void addRenderTransformListener( final TransformListener< AffineTransform3D > listener )
 	{
-		renderTransformListeners().add( listener );
+		renderTarget.addTransformListener( listener );
 	}
 
 	/**
-	 * @deprecated Use {@code renderTransformListeners().add( index, listener )}.
+	 * Add a {@link TransformListener} to notify about viewer transformation
+	 * changes. Listeners will be notified when a new image has been painted
+	 * with the viewer transform used to render that image.
+	 *
+	 * This happens immediately after that image is painted onto the screen,
+	 * before any overlays are painted.
+	 *
+	 * @param listener
+	 *            the transform listener to add.
+	 * @param index
+	 *            position in the list of listeners at which to insert this one.
 	 */
-	@Deprecated
 	public void addRenderTransformListener( final TransformListener< AffineTransform3D > listener, final int index )
 	{
-		renderTransformListeners().add( index, listener );
+		renderTarget.addTransformListener( listener, index );
 	}
 
 	/**
@@ -943,7 +963,7 @@ public class ViewerPanel extends JPanel implements OverlayRenderer, PainterThrea
 		{
 			final int s = transformListeners.size();
 			transformListeners.add( index < 0 ? 0 : index > s ? s : index, listener );
-			listener.transformChanged( state().getViewerTransform() );
+			listener.transformChanged( viewerTransform );
 		}
 	}
 
@@ -959,7 +979,7 @@ public class ViewerPanel extends JPanel implements OverlayRenderer, PainterThrea
 		{
 			transformListeners.remove( listener );
 		}
-		renderTarget.transformListeners().remove( listener );
+		renderTarget.removeTransformListener( listener );
 	}
 
 	/**
@@ -1136,25 +1156,17 @@ public class ViewerPanel extends JPanel implements OverlayRenderer, PainterThrea
 		renderingExecutorService.shutdown();
 		state.kill();
 		imageRenderer.kill();
-		renderTarget.kill();
 	}
 
 	protected static final AtomicInteger panelNumber = new AtomicInteger( 1 );
 
-	protected static class RenderThreadFactory implements ThreadFactory
+	protected class RenderThreadFactory implements ThreadFactory
 	{
-		private final ThreadGroup threadGroup;
-
 		private final String threadNameFormat = String.format(
 				"bdv-panel-%d-thread-%%d",
 				panelNumber.getAndIncrement() );
 
 		private final AtomicInteger threadNumber = new AtomicInteger( 1 );
-
-		protected RenderThreadFactory( final ThreadGroup threadGroup )
-		{
-			this.threadGroup = threadGroup;
-		}
 
 		@Override
 		public Thread newThread( final Runnable r )
@@ -1168,6 +1180,11 @@ public class ViewerPanel extends JPanel implements OverlayRenderer, PainterThrea
 				t.setPriority( Thread.NORM_PRIORITY );
 			return t;
 		}
+	}
+
+	public TransformAwareBufferedImageOverlayRenderer renderTarget()
+	{
+		return this.renderTarget;
 	}
 
 	@Override

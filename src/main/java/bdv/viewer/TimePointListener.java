@@ -30,5 +30,5 @@ package bdv.viewer;
 
 public interface TimePointListener
 {
-	void timePointChanged( int timePointIndex );
+	public void timePointChanged( int timePointIndex );
 }

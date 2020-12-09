@@ -42,7 +42,6 @@ import java.awt.event.KeyEvent;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 
-import java.util.concurrent.atomic.AtomicBoolean;
 import javax.swing.AbstractAction;
 import javax.swing.Action;
 import javax.swing.ActionMap;
@@ -60,11 +59,11 @@ import javax.swing.JSpinner;
 import javax.swing.KeyStroke;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingUtilities;
+import javax.swing.WindowConstants;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 
 import bdv.util.InvokeOnEDT;
-import bdv.util.DelayedPackDialog;
 import mpicbg.spim.data.generic.sequence.BasicViewSetup;
 import net.imglib2.type.numeric.ARGBType;
 
@@ -72,10 +71,10 @@ import net.imglib2.type.numeric.ARGBType;
 /**
  * Adjust brightness and colors for individual (or groups of) {@link BasicViewSetup setups}.
  *
- * @author Tobias Pietzsch
+ * @author Tobias Pietzsch &lt;tobias.pietzsch@gmail.com&gt;
  */
 @Deprecated
-public class BrightnessDialog extends DelayedPackDialog
+public class BrightnessDialog extends JDialog
 {
 	public BrightnessDialog( final Frame owner, final SetupAssignments setupAssignments )
 	{
@@ -104,8 +103,6 @@ public class BrightnessDialog extends DelayedPackDialog
 		im.put( KeyStroke.getKeyStroke( KeyEvent.VK_ESCAPE, 0 ), hideKey );
 		am.put( hideKey, hideAction );
 
-		final AtomicBoolean recreateContentPending = new AtomicBoolean();
-
 		setupAssignments.setUpdateListener( new SetupAssignments.UpdateListener()
 		{
 			@Override
@@ -114,17 +111,8 @@ public class BrightnessDialog extends DelayedPackDialog
 				try
 				{
 					InvokeOnEDT.invokeAndWait( () -> {
-						if ( isVisible() )
-						{
-							System.out.println( "colorsPanel.recreateContent()" );
-							colorsPanel.recreateContent();
-							minMaxPanels.recreateContent();
-							recreateContentPending.set( false );
-						}
-						else
-						{
-							recreateContentPending.set( true );
-						}
+						colorsPanel.recreateContent();
+						minMaxPanels.recreateContent();
 					} );
 				}
 				catch ( InvocationTargetException | InterruptedException e )
@@ -134,20 +122,8 @@ public class BrightnessDialog extends DelayedPackDialog
 			}
 		} );
 
-		addComponentListener( new ComponentAdapter()
-		{
-			@Override
-			public void componentShown( final ComponentEvent e )
-			{
-				if ( recreateContentPending.getAndSet( false ) )
-				{
-					colorsPanel.recreateContent();
-					minMaxPanels.recreateContent();
-				}
-			}
-		} );
-
 		pack();
+		setDefaultCloseOperation( WindowConstants.HIDE_ON_CLOSE );
 	}
 
 	public static class ColorsPanel extends JPanel

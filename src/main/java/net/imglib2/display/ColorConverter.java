@@ -32,9 +32,9 @@ import net.imglib2.type.numeric.ARGBType;
 
 public interface ColorConverter extends LinearRange
 {
-	ARGBType getColor();
+	public ARGBType getColor();
 
-	void setColor( final ARGBType c );
+	public void setColor( final ARGBType c );
 
-	boolean supportsColor();
+	public boolean supportsColor();
 }

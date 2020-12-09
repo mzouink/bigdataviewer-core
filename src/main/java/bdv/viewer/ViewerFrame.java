@@ -28,7 +28,6 @@
  */
 package bdv.viewer;
 
-import bdv.TransformEventHandler;
 import bdv.ui.CardPanel;
 import bdv.ui.BdvDefaultCards;
 import bdv.ui.splitpanel.SplitPanel;
@@ -43,18 +42,19 @@ import javax.swing.SwingUtilities;
 import javax.swing.WindowConstants;
 
 import org.scijava.ui.behaviour.MouseAndKeyHandler;
-import org.scijava.ui.behaviour.util.Behaviours;
 import org.scijava.ui.behaviour.util.InputActionBindings;
 import org.scijava.ui.behaviour.util.TriggerBehaviourBindings;
 
+import bdv.BehaviourTransformEventHandler;
 import bdv.cache.CacheControl;
-import bdv.util.AWTUtils;
+import net.imglib2.ui.TransformEventHandler;
+import net.imglib2.ui.util.GuiUtil;
 
 /**
  * A {@link JFrame} containing a {@link ViewerPanel} and associated
  * {@link InputActionBindings}.
  *
- * @author Tobias Pietzsch
+ * @author Tobias Pietzsch &lt;tobias.pietzsch@gmail.com&gt;
  */
 public class ViewerFrame extends JFrame
 {
@@ -98,7 +98,7 @@ public class ViewerFrame extends JFrame
 			final ViewerOptions optional )
 	{
 //		super( "BigDataViewer", GuiUtil.getSuitableGraphicsConfiguration( GuiUtil.ARGB_COLOR_MODEL ) );
-		super( "BigDataViewer", AWTUtils.getSuitableGraphicsConfiguration( AWTUtils.RGB_COLOR_MODEL ) );
+		super( "BigDataViewer", GuiUtil.getSuitableGraphicsConfiguration( GuiUtil.RGB_COLOR_MODEL ) );
 		viewer = new ViewerPanel( sources, numTimepoints, cacheControl, optional );
 		setups = new ConverterSetups( viewer.state() );
 		setups.listeners().add( s -> viewer.requestRepaint() );
@@ -133,12 +133,9 @@ public class ViewerFrame extends JFrame
 		mouseAndKeyHandler.setKeypressManager( optional.values.getKeyPressedManager(), viewer.getDisplay() );
 		viewer.getDisplay().addHandler( mouseAndKeyHandler );
 
-		// TODO: should be a field?
-		final Behaviours transformBehaviours = new Behaviours( optional.values.getInputTriggerConfig(), "bdv" );
-		transformBehaviours.install( triggerbindings, "transform" );
-
-		final TransformEventHandler tfHandler = viewer.getTransformEventHandler();
-		tfHandler.install( transformBehaviours );
+		final TransformEventHandler< ? > tfHandler = viewer.getDisplay().getTransformEventHandler();
+		if ( tfHandler instanceof BehaviourTransformEventHandler )
+			( ( BehaviourTransformEventHandler< ? > ) tfHandler ).install( triggerbindings );
 	}
 
 	public ViewerPanel getViewerPanel()

@@ -30,13 +30,12 @@ package bdv.tools;
 
 import bdv.cache.CacheControl;
 import bdv.export.ProgressWriter;
-import bdv.util.DelayedPackDialog;
 import bdv.util.Prefs;
 import bdv.viewer.BasicViewerState;
+import bdv.viewer.SynchronizedViewerState;
 import bdv.viewer.ViewerPanel;
 import bdv.viewer.ViewerState;
 import bdv.viewer.overlay.ScaleBarOverlayRenderer;
-import bdv.viewer.render.awt.BufferedImageRenderResult;
 import bdv.viewer.render.MultiResolutionRenderer;
 import java.awt.BorderLayout;
 import java.awt.Frame;
@@ -57,6 +56,7 @@ import javax.swing.BoxLayout;
 import javax.swing.InputMap;
 import javax.swing.JButton;
 import javax.swing.JComponent;
+import javax.swing.JDialog;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -64,6 +64,7 @@ import javax.swing.JSpinner;
 import javax.swing.JTextField;
 import javax.swing.KeyStroke;
 import javax.swing.SpinnerNumberModel;
+import javax.swing.WindowConstants;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 import net.imglib2.Cursor;
@@ -72,11 +73,12 @@ import net.imglib2.img.Img;
 import net.imglib2.img.array.ArrayImgs;
 import net.imglib2.realtransform.AffineTransform3D;
 import net.imglib2.type.numeric.ARGBType;
-import bdv.viewer.OverlayRenderer;
-import bdv.viewer.render.RenderTarget;
+import net.imglib2.ui.OverlayRenderer;
+import net.imglib2.ui.PainterThread;
+import net.imglib2.ui.RenderTarget;
 import net.imglib2.util.LinAlgHelpers;
 
-public class RecordMaxProjectionDialog extends DelayedPackDialog implements OverlayRenderer
+public class RecordMaxProjectionDialog extends JDialog implements OverlayRenderer
 {
 	private static final long serialVersionUID = 1L;
 
@@ -274,6 +276,7 @@ public class RecordMaxProjectionDialog extends DelayedPackDialog implements Over
 		am.put( hideKey, hideAction );
 
 		pack();
+		setDefaultCloseOperation( WindowConstants.HIDE_ON_CLOSE );
 	}
 
 	/**
@@ -310,11 +313,14 @@ public class RecordMaxProjectionDialog extends DelayedPackDialog implements Over
 
 		final ScaleBarOverlayRenderer scalebar = Prefs.showScaleBarInMovie() ? new ScaleBarOverlayRenderer() : null;
 
-		class MyTarget implements RenderTarget< BufferedImageRenderResult >
+		class MyTarget implements RenderTarget
 		{
-			final ARGBScreenImage accumulated = new ARGBScreenImage( width, height );
+			final ARGBScreenImage accumulated;
 
-			final BufferedImageRenderResult renderResult = new BufferedImageRenderResult();
+			public MyTarget()
+			{
+				accumulated = new ARGBScreenImage( width, height );
+			}
 
 			public void clear()
 			{
@@ -323,21 +329,8 @@ public class RecordMaxProjectionDialog extends DelayedPackDialog implements Over
 			}
 
 			@Override
-			public BufferedImageRenderResult getReusableRenderResult()
+			public BufferedImage setBufferedImage( final BufferedImage bufferedImage )
 			{
-				return renderResult;
-			}
-
-			@Override
-			public BufferedImageRenderResult createRenderResult()
-			{
-				return new BufferedImageRenderResult();
-			}
-
-			@Override
-			public void setRenderResult( final BufferedImageRenderResult renderResult )
-			{
-				final BufferedImage bufferedImage = renderResult.getBufferedImage();
 				final Img< ARGBType > argbs = ArrayImgs.argbs( ( ( DataBufferInt ) bufferedImage.getData().getDataBuffer() ).getData(), width, height );
 				final Cursor< ARGBType > c = argbs.cursor();
 				for ( final ARGBType acc : accumulated )
@@ -350,6 +343,7 @@ public class RecordMaxProjectionDialog extends DelayedPackDialog implements Over
 							Math.max( ARGBType.blue( in ), ARGBType.blue( current ) ),
 							Math.max( ARGBType.alpha( in ), ARGBType.alpha( current ) )	) );
 				}
+				return null;
 			}
 
 			@Override
@@ -366,7 +360,7 @@ public class RecordMaxProjectionDialog extends DelayedPackDialog implements Over
 		}
 		final MyTarget target = new MyTarget();
 		final MultiResolutionRenderer renderer = new MultiResolutionRenderer(
-				target, () -> {}, new double[] { 1 }, 0, 1, null, false,
+				target, new PainterThread( null ), new double[] { 1 }, 0, false, 1, null, false,
 				viewer.getOptionValues().getAccumulateProjectorFactory(), new CacheControl.Dummy() );
 		progressWriter.setProgress( 0 );
 		for ( int timepoint = minTimepointIndex; timepoint <= maxTimepointIndex; ++timepoint )
@@ -383,7 +377,7 @@ public class RecordMaxProjectionDialog extends DelayedPackDialog implements Over
 				affine.concatenate( tGV );
 				renderState.setViewerTransform( affine );
 				renderer.requestRepaint();
-				renderer.paint( renderState );
+				renderer.paint( new bdv.viewer.state.ViewerState( new SynchronizedViewerState( renderState ) ) );
 			}
 
 			final BufferedImage bi = target.accumulated.image();

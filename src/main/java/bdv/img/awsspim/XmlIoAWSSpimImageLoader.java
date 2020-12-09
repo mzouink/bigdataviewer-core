@@ -1,4 +1,4 @@
-/*-
+/*
  * #%L
  * BigDataViewer core classes with minimal dependencies.
  * %%
@@ -6,13 +6,13 @@
  * %%
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
- * 
+ *
  * 1. Redistributions of source code must retain the above copyright notice,
  *    this list of conditions and the following disclaimer.
  * 2. Redistributions in binary form must reproduce the above copyright notice,
  *    this list of conditions and the following disclaimer in the documentation
  *    and/or other materials provided with the distribution.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -26,33 +26,38 @@
  * POSSIBILITY OF SUCH DAMAGE.
  * #L%
  */
-package bdv.viewer.render;
+package bdv.img.awsspim;
 
-import net.imglib2.RandomAccessible;
-import net.imglib2.img.array.ArrayImg;
-import net.imglib2.img.basictypeaccess.array.IntArray;
-import net.imglib2.type.numeric.ARGBType;
+import mpicbg.spim.data.XmlHelpers;
+import mpicbg.spim.data.generic.sequence.AbstractSequenceDescription;
+import mpicbg.spim.data.generic.sequence.ImgLoaderIo;
+import mpicbg.spim.data.generic.sequence.XmlIoBasicImgLoader;
+import org.jdom2.Element;
 
-public class ProjectorUtils
-{
-	/**
-	 * Extracts the underlying {@code int[]} array in case {@code img} is a
-	 * standard {@code ArrayImg<ARGBType>}. This supports certain (optional)
-	 * optimizations in projector implementations.
-	 *
-	 * @return the underlying {@code int[]} array of {@code img}, if it is a
-	 * standard {@code ArrayImg<ARGBType>}. Otherwise {@code null}.
-	 */
-	public static int[] getARGBArrayImgData( final RandomAccessible< ? > img )
-	{
-		if ( ! ( img instanceof ArrayImg ) )
-			return null;
-		final ArrayImg< ?, ? > aimg = ( ArrayImg< ?, ? > ) img;
-		if( ! ( aimg.firstElement() instanceof ARGBType ) )
-			return null;
-		final Object access = aimg.update( null );
-		if ( ! ( access instanceof IntArray ) )
-			return null;
-		return ( ( IntArray ) access ).getCurrentStorageArray();
-	}
+import java.io.File;
+
+import static mpicbg.spim.data.XmlHelpers.loadPath;
+import static mpicbg.spim.data.XmlKeys.IMGLOADER_FORMAT_ATTRIBUTE_NAME;
+
+@ImgLoaderIo( format = "bdv.aws", type = bdv.img.awsspim.AWSSpimImageLoader.class )
+public class XmlIoAWSSpimImageLoader implements XmlIoBasicImgLoader<bdv.img.awsspim.AWSSpimImageLoader> {
+
+    @Override
+    public Element toXml(final AWSSpimImageLoader imgLoader, final File basePath )
+    {
+        final Element elem = new Element( "ImageLoader" );
+        elem.setAttribute( IMGLOADER_FORMAT_ATTRIBUTE_NAME, "bdv.aws" );
+        elem.setAttribute( "version", "1.0" );
+        elem.addContent( XmlHelpers.pathElement( "n5", imgLoader.getN5File(), basePath ) );
+        return elem;
+    }
+
+
+    @Override
+    public AWSSpimImageLoader fromXml(final Element elem, final File basePath, final AbstractSequenceDescription< ?, ?, ? > sequenceDescription )
+    {
+//		final String version = elem.getAttributeValue( "version" );
+        final File path = loadPath( elem, "n5", basePath );
+        return new AWSSpimImageLoader( path, sequenceDescription );
+    }
 }

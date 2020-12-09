@@ -26,43 +26,13 @@
  * POSSIBILITY OF SUCH DAMAGE.
  * #L%
  */
-package bdv.util;
+package bdv;
 
-import javax.swing.*;
-import java.awt.*;
+import org.scijava.ui.behaviour.io.InputTriggerConfig;
 
-/**
- * A {@code JDialog} that delays {@code pack()} calls until the dialog is made visible.
- */
-public class DelayedPackDialog extends JDialog
+import net.imglib2.ui.TransformEventHandlerFactory;
+
+public interface BehaviourTransformEventHandlerFactory< A > extends TransformEventHandlerFactory< A >
 {
-	private volatile boolean packIsPending = false;
-
-	public DelayedPackDialog( Frame owner, String title, boolean modal )
-	{
-		super( owner, title, modal );
-	}
-
-	@Override
-	public void pack()
-	{
-		if ( isVisible() )
-		{
-			packIsPending = false;
-			super.pack();
-		}
-		else
-			packIsPending = true;
-	}
-
-	@Override
-	public void setVisible( boolean visible )
-	{
-		if ( visible && packIsPending )
-		{
-			packIsPending = false;
-			super.pack();
-		}
-		super.setVisible( visible );
-	}
+	public void setConfig( final InputTriggerConfig config );
 }

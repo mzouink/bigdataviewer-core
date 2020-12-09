@@ -32,9 +32,9 @@ import java.io.PrintStream;
 
 public interface ProgressWriter
 {
-	PrintStream out();
+	public PrintStream out();
 
-	PrintStream err();
+	public PrintStream err();
 
-	void setProgress( double completionRatio );
+	public void setProgress( double completionRatio );
 }

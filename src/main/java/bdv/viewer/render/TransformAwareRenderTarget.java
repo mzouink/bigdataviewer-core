@@ -28,51 +28,26 @@
  */
 package bdv.viewer.render;
 
-import bdv.viewer.render.RenderResult;
+import java.awt.image.BufferedImage;
 
-/**
- * Receiver for a rendered image (to be drawn onto a canvas later).
- * <p>
- * A renderer will render source data into a {@link RenderResult} and
- * provide this to the {@code RenderTarget}.
- * <p>
- * See {@code BufferedImageOverlayRenderer}, which is both a {@code RenderTarget} and
- * an {@code OverlayRenderer} that draws the {@code RenderResult}.
- *
- * @author Tobias Pietzsch
- */
-public interface RenderTarget< R extends RenderResult >
+import net.imglib2.realtransform.AffineTransform3D;
+import net.imglib2.ui.RenderTarget;
+import net.imglib2.ui.TransformListener;
+
+public interface TransformAwareRenderTarget extends RenderTarget
 {
 	/**
-	 * Returns a {@code RenderResult} for rendering to.
-	 * This may be a new {@code RenderResult} or a previously {@link #setRenderResult set RenderResult}
-	 * that is no longer needed for display.
-	 * Note that consecutive {@code getReusableRenderResult()} calls without intermediate
-	 * {@code setRenderResult()} may return the same {@code RenderResult}.
-	 */
-	R getReusableRenderResult();
-
-	/**
-	 * Returns a new {@code RenderResult}.
-	 */
-	R createRenderResult();
-
-	/**
-	 * Set the {@link RenderResult} that is to be drawn on the canvas.
-	 */
-	void setRenderResult( R renderResult );
-
-	/**
-	 * Get the current canvas width.
+	 * Set the {@link BufferedImage} that is to be drawn on the canvas, and the
+	 * transform with which this image was created.
 	 *
-	 * @return canvas width.
+	 * @param img
+	 *            image to draw (may be null).
 	 */
-	int getWidth();
+	public BufferedImage setBufferedImageAndTransform( final BufferedImage img, final AffineTransform3D transform );
 
-	/**
-	 * Get the current canvas height.
-	 *
-	 * @return canvas height.
-	 */
-	int getHeight();
+	public void addTransformListener( final TransformListener< AffineTransform3D > listener );
+
+	public void addTransformListener( final TransformListener< AffineTransform3D > listener, final int index );
+
+	public void removeTransformListener( final TransformListener< AffineTransform3D > listener );
 }

@@ -33,16 +33,16 @@ import ch.systemsx.cisd.hdf5.IHDF5Writer;
 
 interface IHDF5Access
 {
-	void writeMipmapDescription( final int setupIdPartition, final ExportMipmapInfo mipmapInfo );
+	public void writeMipmapDescription( final int setupIdPartition, final ExportMipmapInfo mipmapInfo );
 
-	void createAndOpenDataset( final String path, long[] dimensions, int[] cellDimensions, HDF5IntStorageFeatures features );
+	public void createAndOpenDataset( final String path, long[] dimensions, int[] cellDimensions, HDF5IntStorageFeatures features );
 
-	void writeBlockWithOffset( final short[] data, final long[] blockDimensions, final long[] offset );
+	public void writeBlockWithOffset( final short[] data, final long[] blockDimensions, final long[] offset );
 
-	void closeDataset();
+	public void closeDataset();
 
-	void close();
+	public void close();
 
 	// this is for sharing with Hdf5ImageLoader for loopback loader when exporting
-	IHDF5Writer getIHDF5Writer();
+	public IHDF5Writer getIHDF5Writer();
 }

@@ -38,17 +38,17 @@ import net.imglib2.realtransform.AffineTransform3D;
 //@Deprecated
 public interface LegacyViewerImgLoader< T, V extends Volatile< T > > extends LegacyBasicImgLoader< T >
 {
-	RandomAccessibleInterval< T > getImage( final ViewId view, final int level );
+	public RandomAccessibleInterval< T > getImage( final ViewId view, final int level );
 
-	RandomAccessibleInterval< V > getVolatileImage( final ViewId view, final int level );
+	public RandomAccessibleInterval< V > getVolatileImage( final ViewId view, final int level );
 
-	V getVolatileImageType();
+	public V getVolatileImageType();
 
-	double[][] getMipmapResolutions( final int setupId );
+	public double[][] getMipmapResolutions( final int setupId );
 
-	AffineTransform3D[] getMipmapTransforms( final int setupId );
+	public AffineTransform3D[] getMipmapTransforms( final int setupId );
 
-	int numMipmapLevels( final int setupId );
+	public int numMipmapLevels( final int setupId );
 
-	CacheControl getCache();
+	public CacheControl getCache();
 }
